@@ -27,7 +27,7 @@ var (
 	defaultVisibilityTimeout   = 15 * time.Second
 )
 
-type TaskFunc func(ctx context.Context, j *Task) error
+type TaskFunc func(ctx context.Context, task *Task) error
 
 type TaskFuncMap map[string]TaskFunc
 
