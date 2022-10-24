@@ -1,0 +1,27 @@
+---
+version: "3.2"
+
+services:
+  postgres:
+    container_name: tasq_example
+    image: postgres:14.2-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      LC_ALL: C.UTF-8
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD", "pg_isready" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tasq
+networks:
+  tasq:
+    name: tasq_network
+    external: false
