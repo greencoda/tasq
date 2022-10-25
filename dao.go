@@ -21,7 +21,7 @@ type iDAO interface {
 	migrate(ctx context.Context) error
 
 	pingTasks(ctx context.Context, taskIDs []uuid.UUID, visibilityTimeout time.Duration) ([]*Task, error)
-	pollTasks(ctx context.Context, queues []string, visibilityTimeout time.Duration, ordering []string, limit int) ([]*Task, error)
+	pollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering []string, limit int) ([]*Task, error)
 	cleanTasks(ctx context.Context, minimumAge time.Duration) error
 
 	registerStart(ctx context.Context, task *Task) (*Task, error)

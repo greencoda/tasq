@@ -180,6 +180,47 @@ func (c *Consumer) Channel() chan *job {
 
 // ---
 
+func (c *Consumer) getActiveTaskIDs() []uuid.UUID {
+	activeTaskIDs := make([]uuid.UUID, 0, len(c.activeTasks))
+
+	for taskID := range c.activeTasks {
+		activeTaskIDs = append(activeTaskIDs, taskID)
+	}
+
+	return activeTaskIDs
+}
+
+func (c *Consumer) getKnownTaskTypes() []string {
+	taskTypes := make([]string, 0, len(c.taskFuncMap))
+
+	for taskType := range c.taskFuncMap {
+		taskTypes = append(taskTypes, taskType)
+	}
+
+	return taskTypes
+}
+
+func (c *Consumer) getPollOrdering() ([]string, error) {
+	switch c.pollStrategy {
+	case PollStrategyByCreatedAt:
+		return OrderingCreatedAtFirst, nil
+	case PollStrategyByPriority:
+		return OrderingPriorityFirst, nil
+	default:
+		return nil, fmt.Errorf("unknown poll strategy '%s", c.pollStrategy)
+	}
+}
+
+func (c *Consumer) getPollQuantity() int {
+	taskCapacity := c.maxActiveTasks - len(c.activeTasks)
+
+	if c.pollLimit < taskCapacity {
+		return c.pollLimit
+	}
+
+	return taskCapacity
+}
+
 func (c *Consumer) processLoop(ctx context.Context) {
 	defer log.Print("processing stopped")
 
@@ -210,44 +251,13 @@ func (c *Consumer) processLoop(ctx context.Context) {
 	}
 }
 
-func (c *Consumer) getPollOrdering() ([]string, error) {
-	switch c.pollStrategy {
-	case PollStrategyByCreatedAt:
-		return OrderingCreatedAtFirst, nil
-	case PollStrategyByPriority:
-		return OrderingPriorityFirst, nil
-	default:
-		return nil, fmt.Errorf("unknown poll strategy '%s", c.pollStrategy)
-	}
-}
-
-func (c *Consumer) getPollQuantity() int {
-	taskCapacity := c.maxActiveTasks - len(c.activeTasks)
-
-	if c.pollLimit < taskCapacity {
-		return c.pollLimit
-	}
-
-	return taskCapacity
-}
-
 func (c *Consumer) pollForTasks(ctx context.Context) ([]*Task, error) {
 	pollOrdering, err := c.getPollOrdering()
 	if err != nil {
 		return nil, err
 	}
 
-	return c.dao.pollTasks(ctx, c.queues, c.visibilityTimeout, pollOrdering, c.getPollQuantity())
-}
-
-func (c *Consumer) getActiveTaskIDs() []uuid.UUID {
-	var activeTaskIDs = make([]uuid.UUID, 0, len(c.activeTasks))
-
-	for taskID := range c.activeTasks {
-		activeTaskIDs = append(activeTaskIDs, taskID)
-	}
-
-	return activeTaskIDs
+	return c.dao.pollTasks(ctx, c.getKnownTaskTypes(), c.queues, c.visibilityTimeout, pollOrdering, c.getPollQuantity())
 }
 
 func (c *Consumer) pingActiveTasks(ctx context.Context) (err error) {
@@ -256,7 +266,7 @@ func (c *Consumer) pingActiveTasks(ctx context.Context) (err error) {
 	return err
 }
 
-func (c *Consumer) taskToJob(ctx context.Context, task *Task) (*job, error) {
+func (c *Consumer) mapTaskToJob(ctx context.Context, task *Task) (*job, error) {
 	if taskFunc, ok := c.taskFuncMap[task.Type]; ok {
 		return newJob(ctx, taskFunc, task), nil
 	}
@@ -266,15 +276,24 @@ func (c *Consumer) taskToJob(ctx context.Context, task *Task) (*job, error) {
 
 func (c *Consumer) activateTasks(ctx context.Context, tasks []*Task) {
 	for _, task := range tasks {
-		task.setConsumer(c)
-
-		job, err := c.taskToJob(ctx, task)
+		err := c.activateTask(ctx, task)
 		if err != nil {
 			task.fail(ctx)
 			continue
 		}
-
-		c.activeTasks[task.ID] = struct{}{}
-		c.c <- job
 	}
+}
+
+func (c *Consumer) activateTask(ctx context.Context, task *Task) error {
+	task.setConsumer(c)
+
+	job, err := c.mapTaskToJob(ctx, task)
+	if err != nil {
+		return err
+	}
+
+	c.activeTasks[task.ID] = struct{}{}
+	c.c <- job
+
+	return nil
 }

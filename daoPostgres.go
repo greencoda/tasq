@@ -86,7 +86,7 @@ func (d *postgresDAO) pingTasks(ctx context.Context, taskIDs []uuid.UUID, visibi
 	return pingedTasks, nil
 }
 
-func (d *postgresDAO) pollTasks(ctx context.Context, queues []string, visibilityTimeout time.Duration, ordering []string, pollLimit int) ([]*Task, error) {
+func (d *postgresDAO) pollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering []string, pollLimit int) ([]*Task, error) {
 	if pollLimit == 0 {
 		return []*Task{}, nil
 	}
@@ -102,6 +102,7 @@ func (d *postgresDAO) pollTasks(ctx context.Context, queues []string, visibility
 					SELECT
 						"id" FROM {{.tableName}}
 					WHERE
+						"type" = ANY(:poll_types) AND
 						"queue" = ANY(:poll_queues) AND 
 						"status" = ANY(:poll_statuses) AND 
 						"visible_at" <= :poll_time
@@ -122,6 +123,7 @@ func (d *postgresDAO) pollTasks(ctx context.Context, queues []string, visibility
 	err = stmt.SelectContext(ctx, &polledTasks, map[string]any{
 		"status":        StatusEnqueued,
 		"visible_at":    pollTime.Add(visibilityTimeout),
+		"poll_types":    pq.Array(types),
 		"poll_queues":   pq.Array(queues),
 		"poll_statuses": pq.Array(openTaskStatuses),
 		"poll_time":     pollTime,
