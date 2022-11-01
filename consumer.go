@@ -43,7 +43,7 @@ type IConsumer interface {
 
 	Learn(name string, taskFunc TaskFunc, override bool) error
 	Forget(name string) error
-	Launch(ctx context.Context) error
+	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 
 	Channel() chan *job
@@ -154,7 +154,7 @@ func (c *Consumer) Forget(name string) error {
 	return nil
 }
 
-func (c *Consumer) Launch(ctx context.Context) error {
+func (c *Consumer) Start(ctx context.Context) error {
 	if c.c == nil {
 		c.c = make(chan *job, defaultChannelSize)
 	}

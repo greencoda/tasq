@@ -100,10 +100,10 @@ func main() {
 		log.Fatalf("failed to teach tasq consumer task handler: %s", err)
 	}
 
-	// launch the consumer
-	err = consumer.Launch(ctx)
+	// start the consumer
+	err = consumer.Start(ctx)
 	if err != nil {
-		log.Fatalf("failed to launch tasq consumer: %s", err)
+		log.Fatalf("failed to start tasq consumer: %s", err)
 	}
 
 	// start the goroutine which handles the tasq jobs received from the consumer
