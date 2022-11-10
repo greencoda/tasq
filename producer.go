@@ -17,7 +17,7 @@ func (c *Client) NewProducer() *Producer {
 	}
 }
 
-func (p *Producer) Submit(ctx context.Context, taskType string, taskArgs any, queue string, priority model.TaskPriority, maxReceives int32) (submittedTask *model.Task, err error) {
+func (p *Producer) Submit(ctx context.Context, taskType string, taskArgs any, queue string, priority int16, maxReceives int32) (submittedTask Task, err error) {
 	newTask := model.NewTask(taskType, taskArgs, queue, priority, maxReceives)
 	if newTask == nil {
 		return nil, fmt.Errorf("error creating task: %s", err)

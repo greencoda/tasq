@@ -38,11 +38,9 @@ var (
 	}
 )
 
-type TaskPriority int16
-
 const (
-	MinTaskPriority TaskPriority = -32767
-	MaxTaskPriority TaskPriority = 32767
+	MinTaskPriority int16 = -32767
+	MaxTaskPriority int16 = 32767
 )
 
 type Task struct {
@@ -50,7 +48,7 @@ type Task struct {
 	Type         string         `db:"type"`
 	Args         []byte         `db:"args"`
 	Queue        string         `db:"queue"`
-	Priority     TaskPriority   `db:"priority"`
+	Priority     int16          `db:"priority"`
 	Status       TaskStatus     `db:"status"`
 	ReceiveCount int32          `db:"receive_count"`
 	MaxReceives  int32          `db:"max_receives"`
@@ -61,7 +59,7 @@ type Task struct {
 	VisibleAt    time.Time      `db:"visible_at"`
 }
 
-func NewTask(taskType string, taskArgs any, queue string, priority TaskPriority, maxReceives int32) *Task {
+func NewTask(taskType string, taskArgs any, queue string, priority int16, maxReceives int32) *Task {
 	taskID, err := uuid.NewRandom()
 	if err != nil {
 		return nil
