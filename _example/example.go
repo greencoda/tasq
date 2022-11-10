@@ -68,7 +68,7 @@ func produceTasks(producer *tasq.Producer, ctx context.Context) {
 		if err != nil {
 			log.Printf("error while submitting task to tasq: %s", err)
 		} else {
-			log.Printf("successfully submitted task %s submitted to tasq", t.ID)
+			log.Printf("successfully submitted task %s submitted to tasq", t.GetDetails().ID)
 		}
 	}
 }
