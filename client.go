@@ -2,34 +2,20 @@ package tasq
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 
-	"github.com/lib/pq"
+	"github.com/greencoda/tasq/internal/repository"
 )
 
-type IClient interface {
-	NewCleaner() ICleaner
-	NewConsumer() IConsumer
-	NewProducer() IProducer
-}
-
 type Client struct {
-	dao iDAO
+	repository repository.IRepository
 }
 
-func New(ctx context.Context, db *sql.DB, prefix string) (IClient, error) {
-	switch db.Driver().(type) {
-	case *pq.Driver:
-		dao, err := newPostgresDAO(ctx, db, prefix)
-		if err != nil {
-			return nil, err
-		}
-
-		return &Client{
-			dao: dao,
-		}, nil
+func NewClient(ctx context.Context, repository repository.IRepository) *Client {
+	return &Client{
+		repository: repository,
 	}
+}
 
-	return nil, fmt.Errorf("unsupported database driver %T", db.Driver())
+func (c *Client) Repository() repository.IRepository {
+	return c.repository
 }
