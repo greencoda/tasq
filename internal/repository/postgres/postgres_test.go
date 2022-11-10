@@ -96,6 +96,17 @@ func (s *PostgresTestSuite) TestNewRepository() {
 	assert.NotNil(s.T(), err)
 }
 
+func (s *PostgresTestSuite) TestDB() {
+	dbRef := s.mockedRepository.DB()
+	assert.NotNil(s.T(), dbRef)
+
+	dbRef.SetMaxOpenConns(5)
+
+	dbRef = s.mockedRepository.DB()
+	assert.NotNil(s.T(), dbRef)
+	assert.Equal(s.T(), 5, dbRef.Stats().MaxOpenConnections)
+}
+
 func (s *PostgresTestSuite) TestMigrate() {
 	// First try - creating the task_status type fails
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnError(sqlError)
@@ -347,11 +358,11 @@ func (s *PostgresTestSuite) TestRequeueTask() {
 func (s *PostgresTestSuite) TestPrepareWithTableName() {
 	var stmtMockRegexp = regexp.QuoteMeta(`SELECT * FROM test_tasks`)
 
-	// preparing stmt with table name when DB returns error
-	s.sqlMock.ExpectPrepare(stmtMockRegexp).WillReturnError(sqlError)
-
 	postgresRepository, ok := s.mockedRepository.(*postgresRepository)
 	require.True(s.T(), ok)
+
+	// preparing stmt with table name when DB returns error
+	s.sqlMock.ExpectPrepare(stmtMockRegexp).WillReturnError(sqlError)
 
 	assert.PanicsWithError(s.T(), "sql error", func() {
 		namedStmt := postgresRepository.prepareWithTableName(s.ctx, "SELECT * FROM {{.tableName}}")
