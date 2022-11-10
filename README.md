@@ -1,5 +1,6 @@
 [![godoc for greencoda/tasq][godoc-badge]][godoc-url]
 [![Build Status][actions-badge]][actions-url]
+[![Go 1.19](https://img.shields.io/badge/Go-1.19-%2300ADD8?logo=go)](https://golang.org/doc/go1.19)
 
 # tasq
 
