@@ -8,19 +8,20 @@ on:
 
 jobs:
 
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout
+      uses: actions/checkout@v3
 
-    - name: Set up Go
+    - name: Setup Go
       uses: actions/setup-go@v3
       with:
         go-version: 1.19.x
         check-latest: true
         
-    - name: Deps
+    - name: Setup Dependencies
       run: make deps && git diff-index --quiet HEAD || { >&2 echo "Stale go.{mod,sum} detected. This can be fixed with 'make deps'."; exit 1; }
 
-    - name: Test
+    - name: Run Test
       run: make test
