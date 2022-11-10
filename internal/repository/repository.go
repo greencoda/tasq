@@ -3,6 +3,7 @@ package repository
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"text/template"
 	"time"
 
@@ -17,6 +18,8 @@ var (
 )
 
 type IRepository interface {
+	DB() *sql.DB
+
 	Migrate(ctx context.Context) error
 
 	PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibilityTimeout time.Duration) ([]*model.Task, error)

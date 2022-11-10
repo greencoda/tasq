@@ -8,6 +8,8 @@ import (
 	model "github.com/greencoda/tasq/internal/model"
 	mock "github.com/stretchr/testify/mock"
 
+	sql "database/sql"
+
 	time "time"
 
 	uuid "github.com/google/uuid"
@@ -37,6 +39,22 @@ func (_m *IRepository) CleanTasks(ctx context.Context, minimumAge time.Duration)
 	}
 
 	return r0, r1
+}
+
+// DB provides a mock function with given fields:
+func (_m *IRepository) DB() *sql.DB {
+	ret := _m.Called()
+
+	var r0 *sql.DB
+	if rf, ok := ret.Get(0).(func() *sql.DB); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*sql.DB)
+		}
+	}
+
+	return r0
 }
 
 // DeleteTask provides a mock function with given fields: ctx, task

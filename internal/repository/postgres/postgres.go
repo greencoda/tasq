@@ -36,8 +36,6 @@ func newRepositoryFromDSN(ctx context.Context, dsn string, driver, prefix string
 		return nil, err
 	}
 
-	dbx.SetMaxOpenConns(1)
-
 	return &postgresRepository{
 		db:     dbx,
 		prefix: prefix,
@@ -47,12 +45,14 @@ func newRepositoryFromDSN(ctx context.Context, dsn string, driver, prefix string
 func newRepositoryFromDB(ctx context.Context, db *sql.DB, driver, prefix string) (repository.IRepository, error) {
 	dbx := sqlx.NewDb(db, driver)
 
-	dbx.SetMaxOpenConns(1)
-
 	return &postgresRepository{
 		db:     dbx,
 		prefix: prefix,
 	}, nil
+}
+
+func (d *postgresRepository) DB() *sql.DB {
+	return d.db.DB
 }
 
 func (d *postgresRepository) tableName() string {

@@ -90,7 +90,7 @@ func main() {
 	}
 
 	// instantiate tasq client
-	tasqClient := tasq.NewClient(ctx, tasqRepository)
+	tasqClient := tasq.NewClient(ctx, tasqRepository.WithMaxOpenConns(10))
 
 	// set up tasq cleaner
 	cleaner := tasqClient.NewCleaner().
