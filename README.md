@@ -2,7 +2,7 @@
 [![Build Status][actions-badge]][actions-url]
 [![Go 1.19](https://img.shields.io/badge/Go-1.19-%2300ADD8?logo=go)](https://golang.org/doc/go1.19)
 
-<p align="center"><img src=".github/splash_image.png" width="800"></p>
+<p align="center"><img src=".github/splash_image.png" width="500"></p>
 
 # tasq
 
