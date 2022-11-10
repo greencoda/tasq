@@ -1,3 +1,6 @@
+[![godoc for greencoda/tasq][godoc-badge]][godoc-url]
+[![Build Status][actions-badge]][actions-url]
+
 # tasq
 
 Tasq is Golang task queue using SQL database for persistence (currently supporting PostgreSQL only)
@@ -19,3 +22,8 @@ Afterwards simply run the example.go file
 ```shell
 go run _example/example.go
 ```
+
+[godoc-badge]: https://pkg.go.dev/badge/github.com/greencoda/tasq
+[godoc-url]: https://pkg.go.dev/github.com/greencoda/tasq
+[actions-badge]: https://github.com/greencoda/tasq/actions/workflows/test.yml/badge.svg
+[actions-url]: https://github.com/greencoda/tasq/actions/workflows/test.yml
