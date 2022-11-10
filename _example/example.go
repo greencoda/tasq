@@ -21,7 +21,7 @@ type SampleTaskArgs struct {
 	Value float64
 }
 
-func processSampleTask(ctx context.Context, task *tasq.Task) error {
+func processSampleTask(ctx context.Context, task tasq.Task) error {
 	var args SampleTaskArgs
 
 	err := task.UnmarshalArgs(&args)
@@ -31,12 +31,14 @@ func processSampleTask(ctx context.Context, task *tasq.Task) error {
 
 	// do something here with the task arguments as input
 	// for purposes of the sample, we'll just log its details here
-	log.Printf("executed task '%s' with args '%+v'", task.ID, args)
+	taskDetails := task.GetDetails()
+
+	log.Printf("executed task '%s' with args '%+v'", taskDetails.ID, args)
 
 	return nil
 }
 
-func consumeTasks(consumer tasq.IConsumer) {
+func consumeTasks(consumer *tasq.Consumer) {
 	for {
 		job := <-consumer.Channel()
 		if job == nil {
@@ -50,15 +52,15 @@ func consumeTasks(consumer tasq.IConsumer) {
 	}
 }
 
-func produceTasks(producer tasq.IProducer, ctx context.Context) {
+func produceTasks(producer *tasq.Producer, ctx context.Context) {
 	taskTicker := time.NewTicker(1 * time.Second)
 
-	for n := 0; true; n++ {
+	for taskIndex := 0; true; taskIndex++ {
 		<-taskTicker.C
 
 		rand.Seed(time.Now().UnixNano())
 		taskArgs := SampleTaskArgs{
-			ID:    n,
+			ID:    taskIndex,
 			Value: rand.Float64(),
 		}
 
@@ -79,20 +81,35 @@ func main() {
 		log.Fatalf("failed to open DB connection: %v", err)
 	}
 
-	db.SetMaxOpenConns(1)
-
-	// set up tasq client which manages the DB transactions
-	tasqClient, err := tasq.New(ctx, db, "tasq")
+	// instantiate tasq repository to manage the database connection
+	// you can also have it set up the sql DB for you if you provide the dsn string
+	// instead of the *sql.DB instance
+	tasqRepository, err := tasq.NewRepository(ctx, db, "postgres", "tasq", true)
 	if err != nil {
-		log.Fatalf("failed to create tasq client: %s", err)
+		log.Fatalf("failed to create tasq repository: %s", err)
 	}
+
+	// instantiate tasq client
+	tasqClient := tasq.NewClient(ctx, tasqRepository)
+
+	// set up tasq cleaner
+	cleaner := tasqClient.NewCleaner().
+		WithTaskAge(time.Second)
+
+	cleanedTaskCount, err := cleaner.Clean(ctx)
+	if err != nil {
+		log.Fatalf("failed to clean old tasks from queue: %s", err)
+	}
+
+	log.Printf("cleaned %d finished tasks from the queue on startup", cleanedTaskCount)
 
 	// set up tasq consumer
 	consumer := tasqClient.NewConsumer().
 		WithQueues(taskQueue).
 		WithChannelSize(10).
+		WithPollInterval(10 * time.Second).
 		WithPollStrategy(tasq.PollStrategyByPriority).
-		WithAutoDeleteOnSuccess(true)
+		WithAutoDeleteOnSuccess(false)
 
 	// teach the consumer to handle tasks with the type "sampleTask" with the function "processSampleTask"
 	err = consumer.Learn(taskType, processSampleTask, false)

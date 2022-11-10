@@ -5,30 +5,23 @@ import (
 	"time"
 )
 
-type ICleaner interface {
-	WithTaskAge(taskAge time.Duration) ICleaner
-
-	Clean(ctx context.Context) error
-}
-
 type Cleaner struct {
-	dao iDAO
+	client *Client
 
-	taskAge time.Duration
+	taskAgeLimit time.Duration
 }
 
-func (t *Client) NewCleaner() ICleaner {
+func (c *Client) NewCleaner() *Cleaner {
 	return &Cleaner{
-		dao: t.dao,
+		client: c,
 	}
 }
 
-func (c *Cleaner) WithTaskAge(taskAge time.Duration) ICleaner {
-	c.taskAge = taskAge
-
+func (c *Cleaner) WithTaskAge(taskAge time.Duration) *Cleaner {
+	c.taskAgeLimit = taskAge
 	return c
 }
 
-func (c *Cleaner) Clean(ctx context.Context) error {
-	return c.dao.cleanTasks(ctx, c.taskAge)
+func (c *Cleaner) Clean(ctx context.Context) (int64, error) {
+	return c.client.Repository().CleanTasks(ctx, c.taskAgeLimit)
 }
