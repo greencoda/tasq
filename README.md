@@ -2,6 +2,8 @@
 [![Build Status][actions-badge]][actions-url]
 [![Go 1.19](https://img.shields.io/badge/Go-1.19-%2300ADD8?logo=go)](https://golang.org/doc/go1.19)
 
+<p align="center"><img src=".github/splash_image.png" width="800"></p>
+
 # tasq
 
 Tasq is Golang task queue using SQL database for persistence (currently supporting PostgreSQL only)
@@ -24,6 +26,8 @@ Afterwards simply run the example.go file
 go run _example/example.go
 ```
 
+[goversion-badge]: https://img.shields.io/badge/Go-1.19-%2300ADD8?logo=go
+[goversion-url]: https://golang.org/doc/go1.19
 [godoc-badge]: https://pkg.go.dev/badge/github.com/greencoda/tasq
 [godoc-url]: https://pkg.go.dev/github.com/greencoda/tasq
 [actions-badge]: https://github.com/greencoda/tasq/actions/workflows/test.yml/badge.svg
