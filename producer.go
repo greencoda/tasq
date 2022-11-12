@@ -23,7 +23,7 @@ func (p *Producer) Submit(ctx context.Context, taskType string, taskArgs any, qu
 		return nil, fmt.Errorf("error creating task: %s", err)
 	}
 
-	submittedTask, err = p.client.Repository().SubmitTask(ctx, newTask)
+	submittedTask, err = p.client.getRepository().SubmitTask(ctx, newTask)
 	if err != nil {
 		return nil, err
 	}

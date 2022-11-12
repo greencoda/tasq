@@ -6,16 +6,20 @@ import (
 	"github.com/greencoda/tasq/internal/repository"
 )
 
+// Client wraps the tasq repository interface which is used
+// by the different services to access the database
 type Client struct {
 	repository repository.IRepository
 }
 
+// NewClient creates a new tasq client instance with the provided tasq repository
 func NewClient(ctx context.Context, repository repository.IRepository) *Client {
 	return &Client{
 		repository: repository,
 	}
 }
 
-func (c *Client) Repository() repository.IRepository {
+// getRepository returns a reference to the the wrapped tasq repository
+func (c *Client) getRepository() repository.IRepository {
 	return c.repository
 }

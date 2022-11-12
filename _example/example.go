@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/greencoda/tasq"
@@ -38,7 +39,9 @@ func processSampleTask(ctx context.Context, task tasq.Task) error {
 	return nil
 }
 
-func consumeTasks(consumer *tasq.Consumer) {
+func consumeTasks(consumer *tasq.Consumer, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	for {
 		job := <-consumer.Channel()
 		if job == nil {
@@ -68,7 +71,7 @@ func produceTasks(producer *tasq.Producer, ctx context.Context) {
 		if err != nil {
 			log.Printf("error while submitting task to tasq: %s", err)
 		} else {
-			log.Printf("successfully submitted task %s submitted to tasq", t.GetDetails().ID)
+			log.Printf("successfully submitted task '%s'", t.GetDetails().ID)
 		}
 	}
 }
@@ -90,7 +93,7 @@ func main() {
 	}
 
 	// instantiate tasq client
-	tasqClient := tasq.NewClient(ctx, tasqRepository.WithMaxOpenConns(10))
+	tasqClient := tasq.NewClient(ctx, tasqRepository)
 
 	// set up tasq cleaner
 	cleaner := tasqClient.NewCleaner().
@@ -123,8 +126,11 @@ func main() {
 		log.Fatalf("failed to start tasq consumer: %s", err)
 	}
 
+	var consumerWg sync.WaitGroup
+
 	// start the goroutine which handles the tasq jobs received from the consumer
-	go consumeTasks(consumer)
+	consumerWg.Add(1)
+	go consumeTasks(consumer, &consumerWg)
 
 	// set up tasq producer
 	producer := tasqClient.NewProducer()
@@ -133,5 +139,12 @@ func main() {
 	go produceTasks(producer, ctx)
 
 	// block the execution
-	select {}
+	<-time.After(30 * time.Second)
+	err = consumer.Stop(ctx)
+	if err != nil {
+		log.Fatalf("failed to stop tasq consumer: %s", err)
+	}
+
+	// wait until consumer go routine exits
+	consumerWg.Wait()
 }

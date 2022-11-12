@@ -9,7 +9,7 @@ import (
 func TestInterpolateSQL(t *testing.T) {
 	var params = map[string]any{"tableName": "test_table"}
 
-	// Interpolate SQL successully
+	// Interpolate SQL successfully
 	interpolatedSQL := InterpolateSQL("SELECT * FROM {{.tableName}}", params)
 	assert.Equal(t, "SELECT * FROM test_table", interpolatedSQL)
 

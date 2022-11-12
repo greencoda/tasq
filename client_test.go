@@ -18,7 +18,7 @@ func TestNewClient(t *testing.T) {
 
 	assert.NotNil(t, tasqClient)
 
-	clientRepository := tasqClient.Repository()
+	clientRepository := tasqClient.getRepository()
 
 	assert.Equal(t, repository, clientRepository)
 }

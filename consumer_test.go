@@ -14,9 +14,30 @@ import (
 	"github.com/greencoda/tasq/internal/model"
 	"github.com/greencoda/tasq/internal/repository"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
+
+func elementMatcher[T comparable](x, y []T) bool {
+	if len(x) != len(y) {
+		return false
+	}
+	diff := make(map[T]int, len(x))
+	for _, _x := range x {
+		diff[_x]++
+	}
+	for _, _y := range y {
+		if _, ok := diff[_y]; !ok {
+			return false
+		}
+		diff[_y] -= 1
+		if diff[_y] == 0 {
+			delete(diff, _y)
+		}
+	}
+	return len(diff) == 0
+}
 
 type ConsumerTestSuite struct {
 	suite.Suite
@@ -52,17 +73,6 @@ func (s *ConsumerTestSuite) TestNewConsumer() {
 		WithPollStrategy(PollStrategyByCreatedAt).
 		WithQueues("testQueue").
 		WithVisibilityTimeout(30*time.Second))
-
-	assert.Empty(s.T(), s.logBuffer.String())
-}
-
-func (s *ConsumerTestSuite) TestNewConsumerSettingChannelSizeTwice() {
-	assert.Panics(s.T(), func() {
-		s.tasqConsumer.
-			WithChannelSize(10).
-			WithChannelSize(5)
-	})
-	assert.NotNil(s.T(), s.tasqConsumer)
 
 	assert.Empty(s.T(), s.logBuffer.String())
 }
@@ -109,6 +119,40 @@ func (s *ConsumerTestSuite) TestStartWithInvalidVisibilityTimeoutParam() {
 	assert.Empty(s.T(), s.logBuffer.String())
 }
 
+func (s *ConsumerTestSuite) TestStartStopTwice() {
+	s.tasqConsumer.
+		WithQueues("testQueue")
+
+	err := s.tasqConsumer.Learn("testTask", func(ctx context.Context, task Task) error {
+		return nil
+	}, false)
+	assert.Nil(s.T(), err)
+
+	// Getting tasks
+	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Return([]*model.Task{}, nil)
+	s.mockRepository.On("PollTasks", s.ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 10).Return([]*model.Task{}, nil)
+
+	// Start up the consumer
+	err = s.tasqConsumer.Start(s.ctx)
+	assert.Nil(s.T(), err)
+
+	// Start up the consumer again
+	err = s.tasqConsumer.Start(s.ctx)
+	assert.NotNil(s.T(), err)
+
+	// Stop the consumer
+	err = s.tasqConsumer.Stop(s.ctx)
+	assert.Nil(s.T(), err)
+
+	s.mockClock.Add(6 * time.Second)
+
+	// Stop the consumer again
+	err = s.tasqConsumer.Stop(s.ctx)
+	assert.NotNil(s.T(), err)
+
+	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
+}
+
 func (s *ConsumerTestSuite) TestConsumption() {
 	s.tasqConsumer.
 		WithQueues("testQueue")
@@ -149,7 +193,12 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	}
 
 	// Getting tasks
-	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Return([]*model.Task{}, nil)
+
+	// First try - pinging fails
+	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Once().Return([]*model.Task{}, repositoryError)
+
+	// First try - pinging succeeds
+	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Once().Return([]*model.Task{}, nil)
 	s.mockRepository.On("PollTasks", s.ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 10).Return([]*model.Task{
 		successTestTask,
 		failTestTask,
@@ -245,7 +294,9 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
 
-	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
+	s.mockClock.Add(11 * time.Second)
+
+	assert.Equal(s.T(), "error pinging active tasks: repository error\nprocessing stopped\n", s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
@@ -266,7 +317,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 	successTestTask.ReceiveCount++
 
 	// Getting tasks
-	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Return([]*model.Task{}, nil)
+	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*model.Task{}, nil)
 	s.mockRepository.On("PollTasks", s.ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 10).Return([]*model.Task{
 		successTestTask,
 	}, nil)
@@ -300,6 +351,8 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
 
+	s.mockClock.Add(6 * time.Second)
+
 	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
 }
 
@@ -318,7 +371,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 	successTestTask.ReceiveCount++
 
 	// Getting tasks
-	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Return([]*model.Task{}, nil)
+	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*model.Task{}, nil)
 	s.mockRepository.On("PollTasks", s.ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingPriorityFirst, 10).Return([]*model.Task{
 		successTestTask,
 	}, nil)
@@ -345,6 +398,8 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
 
+	s.mockClock.Add(6 * time.Second)
+
 	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
 }
 
@@ -354,7 +409,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithUnknownPollStrategy() {
 		WithPollStrategy(PollStrategy("pollByMagic"))
 
 	// Getting tasks
-	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Return([]*model.Task{}, nil)
+	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*model.Task{}, nil)
 
 	// Start up the consumer
 	err := s.tasqConsumer.Start(s.ctx)
@@ -366,6 +421,8 @@ func (s *ConsumerTestSuite) TestConsumptionWithUnknownPollStrategy() {
 
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
+
+	s.mockClock.Add(6 * time.Second)
 
 	assert.Equal(s.T(), "error polling for tasks: unknown poll strategy 'pollByMagic'\nprocessing stopped\n", s.logBuffer.String())
 }
@@ -382,7 +439,7 @@ func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 	require.Nil(s.T(), err)
 
 	// Getting tasks
-	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Return([]*model.Task{}, nil)
+	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*model.Task{}, nil)
 	s.mockRepository.On("PollTasks", s.ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 10).Return([]*model.Task{
 		anotherTestTask,
 	}, nil)
@@ -400,6 +457,8 @@ func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
 
+	s.mockClock.Add(6 * time.Second)
+
 	assert.Equal(s.T(), "error activating tasks: 1 tasks could not be activated\nprocessing stopped\n", s.logBuffer.String())
 }
 
@@ -411,8 +470,8 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 		WithMaxActiveTasks(2)
 
 	var (
-		testTask        = model.NewTask("testTask", true, "testQueue", 100, 5)
-		repositoryError = errors.New("repository error")
+		testTask_1 = model.NewTask("testTask", true, "testQueue", 100, 5)
+		testTask_2 = model.NewTask("testTask", true, "testQueue", 100, 5)
 	)
 
 	err := s.tasqConsumer.Learn("testTask", func(ctx context.Context, task Task) error {
@@ -420,36 +479,59 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 	}, false)
 	require.Nil(s.T(), err)
 
-	// Getting tasks
-	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Once().Return([]*model.Task{}, nil)
-	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{testTask.ID}, 15*time.Second).Once().Return([]*model.Task{}, repositoryError)
-	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{testTask.ID}, 15*time.Second).Once().Return([]*model.Task{testTask}, nil)
-	s.mockRepository.On("PollTasks", s.ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1).Times(3).Return([]*model.Task{
-		testTask,
-	}, nil)
+	// First loop
+	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).Once().
+		Return([]*model.Task{}, nil)
+	s.mockRepository.On("PollTasks", s.ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1).Once().
+		Return([]*model.Task{
+			testTask_1,
+		}, nil)
+
+	// Second loop
+	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{testTask_1.ID}, 15*time.Second).Once().
+		Return([]*model.Task{testTask_1}, nil)
+	s.mockRepository.On("PollTasks", s.ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1).Once().
+		Return([]*model.Task{
+			testTask_2,
+		}, nil)
+
+	// Third loop
+	s.mockRepository.On("PingTasks", s.ctx, mock.MatchedBy(func(uuids []uuid.UUID) bool {
+		return elementMatcher(uuids, []uuid.UUID{testTask_1.ID, testTask_2.ID})
+	}), 15*time.Second).Once().
+		Return([]*model.Task{testTask_1, testTask_2}, nil)
+
+	// Subsequent loops
+	s.mockRepository.On("PingTasks", s.ctx, []uuid.UUID{}, 15*time.Second).
+		Return([]*model.Task{}, nil)
 
 	// Start up the consumer
 	err = s.tasqConsumer.Start(s.ctx)
 	assert.Nil(s.T(), err)
 
-	s.mockClock.Add(11 * time.Second)
+	s.mockClock.Add(5 * time.Second)
 
 	// Stop the consumer
 	err = s.tasqConsumer.Stop(s.ctx)
 	assert.Nil(s.T(), err)
 
-	// First try - repository succeeds
-	s.mockRepository.On("RegisterStart", s.ctx, testTask).Return(testTask, nil)
-	s.mockRepository.On("RegisterSuccess", s.ctx, testTask).Return(testTask, nil)
+	// Mock job handling
+	s.mockRepository.On("RegisterStart", s.ctx, testTask_1).Return(testTask_1, nil)
+	s.mockRepository.On("RegisterSuccess", s.ctx, testTask_1).Return(testTask_1, nil)
 
-	// // Drain channel of jobs
+	s.mockRepository.On("RegisterStart", s.ctx, testTask_2).Return(testTask_2, nil)
+	s.mockRepository.On("RegisterSuccess", s.ctx, testTask_2).Return(testTask_2, nil)
+
+	// Drain channel of jobs
 	for job := range s.tasqConsumer.Channel() {
 		assert.NotPanics(s.T(), func() {
 			(*job)()
 		})
 	}
 
-	assert.Equal(s.T(), "error pinging active tasks: repository error\nprocessing stopped\n", s.logBuffer.String())
+	s.mockClock.Add(6 * time.Second)
+
+	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
 }
 
 func TestConsumerTestSuite(t *testing.T) {
