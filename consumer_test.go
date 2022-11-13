@@ -512,7 +512,7 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 	err = s.tasqConsumer.Start()
 	assert.Nil(s.T(), err)
 
-	s.mockClock.Add(5 * time.Second)
+	s.mockClock.Add(6 * time.Second)
 
 	// Stop the consumer
 	err = s.tasqConsumer.Stop()
@@ -532,7 +532,7 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 		})
 	}
 
-	s.mockClock.Add(6 * time.Second)
+	s.mockClock.Add(5 * time.Second)
 
 	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
 }
