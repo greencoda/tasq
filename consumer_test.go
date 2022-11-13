@@ -19,11 +19,16 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-func elementMatcher[T comparable](x, y []T) bool {
+func (c *Consumer) setClock(clock clock.Clock) *Consumer {
+	c.clock = clock
+	return c
+}
+
+func uuidSliceMatcher(x, y []uuid.UUID) bool {
 	if len(x) != len(y) {
 		return false
 	}
-	diff := make(map[T]int, len(x))
+	diff := make(map[uuid.UUID]int, len(x))
 	for _, _x := range x {
 		diff[_x]++
 	}
@@ -497,7 +502,7 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 
 	// Third loop
 	s.mockRepository.On("PingTasks", s.ctx, mock.MatchedBy(func(uuids []uuid.UUID) bool {
-		return elementMatcher(uuids, []uuid.UUID{testTask_1.ID, testTask_2.ID})
+		return uuidSliceMatcher(uuids, []uuid.UUID{testTask_1.ID, testTask_2.ID})
 	}), 15*time.Second).Once().
 		Return([]*model.Task{testTask_1, testTask_2}, nil)
 

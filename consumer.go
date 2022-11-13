@@ -201,18 +201,6 @@ func (c *Consumer) Forget(taskType string) error {
 	return nil
 }
 
-func (c *Consumer) isRunning() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.running
-}
-
-func (c *Consumer) setRunning(isRunning bool) {
-	c.mu.Lock()
-	c.running = isRunning
-	c.mu.Unlock()
-}
-
 // Start launches the go routine which manages the pinging and polling of tasks
 // for the consumer, or returns an error if the consumer is not properly configured
 func (c *Consumer) Start(ctx context.Context) error {
@@ -249,6 +237,18 @@ func (c *Consumer) Stop(ctx context.Context) error {
 // Channel returns a read-only channel where the polled jobs can be read from
 func (c *Consumer) Channel() <-chan *func() {
 	return c.c
+}
+
+func (c *Consumer) isRunning() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.running
+}
+
+func (c *Consumer) setRunning(isRunning bool) {
+	c.mu.Lock()
+	c.running = isRunning
+	c.mu.Unlock()
 }
 
 func (c *Consumer) registerTaskStart(ctx context.Context, task *model.Task) {
@@ -468,9 +468,4 @@ func (c *Consumer) newJob(ctx context.Context, consumer *Consumer, f handlerFunc
 	}
 
 	return &job
-}
-
-func (c *Consumer) setClock(clock clock.Clock) *Consumer {
-	c.clock = clock
-	return c
 }
