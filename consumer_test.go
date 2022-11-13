@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"log"
+	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +24,10 @@ import (
 func (c *Consumer) setClock(clock clock.Clock) *Consumer {
 	c.clock = clock
 	return c
+}
+
+func (c *Consumer) getWaitGroup() *sync.WaitGroup {
+	return &c.wg
 }
 
 func uuidSliceMatcher(x, y []uuid.UUID) bool {
@@ -56,6 +62,7 @@ type ConsumerTestSuite struct {
 func (s *ConsumerTestSuite) SetupTest() {
 	s.mockRepository = mock_repository.NewIRepository(s.T())
 	s.mockClock = clock.NewMock()
+	s.mockClock.Set(time.Now())
 
 	s.tasqClient = NewClient(context.Background(), s.mockRepository)
 	require.NotNil(s.T(), s.tasqClient)
@@ -473,8 +480,30 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 		WithMaxActiveTasks(2)
 
 	var (
-		testTask_1 = model.NewTask("testTask", true, "testQueue", 100, 5)
-		testTask_2 = model.NewTask("testTask", true, "testQueue", 100, 5)
+		testTask_1 = &model.Task{
+			ID:           uuid.MustParse("1ada263f-61d5-44ac-b99d-2d5ad4f249de"),
+			Type:         "testTask",
+			Args:         []uint8{0x3, 0x2, 0x0, 0x1},
+			Queue:        "testQueue",
+			Priority:     100,
+			Status:       model.StatusNew,
+			ReceiveCount: 0,
+			MaxReceives:  5,
+			CreatedAt:    s.mockClock.Now(),
+			VisibleAt:    s.mockClock.Now(),
+		}
+		testTask_2 = &model.Task{
+			ID:           uuid.MustParse("28032675-bc13-4dcd-8ec6-6aa430fc466a"),
+			Type:         "testTask",
+			Args:         []uint8{0x3, 0x2, 0x0, 0x1},
+			Queue:        "testQueue",
+			Priority:     100,
+			Status:       model.StatusNew,
+			ReceiveCount: 0,
+			MaxReceives:  5,
+			CreatedAt:    s.mockClock.Now(),
+			VisibleAt:    s.mockClock.Now(),
+		}
 	)
 
 	err := s.tasqConsumer.Learn("testTask", func(task Task) error {
@@ -512,27 +541,38 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 	err = s.tasqConsumer.Start()
 	assert.Nil(s.T(), err)
 
-	s.mockClock.Add(6 * time.Second)
+	s.mockClock.Add(5 * time.Second)
 
 	// Stop the consumer
 	err = s.tasqConsumer.Stop()
 	assert.Nil(s.T(), err)
 
 	// Mock job handling
-	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), testTask_1).Return(testTask_1, nil)
-	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), testTask_1).Return(testTask_1, nil)
+	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), testTask_1).Once().
+		Return(testTask_1, nil)
+	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), testTask_1).Once().
+		Return(testTask_1, nil)
 
-	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), testTask_2).Return(testTask_2, nil)
-	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), testTask_2).Return(testTask_2, nil)
+	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), testTask_2).Once().
+		Return(testTask_2, nil)
+	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), testTask_2).Once().
+		Return(testTask_2, nil)
+
+	time.Sleep(5 * time.Millisecond)
 
 	// Drain channel of jobs
 	for job := range s.tasqConsumer.Channel() {
 		assert.NotPanics(s.T(), func() {
+			time.Sleep(time.Duration(rand.Intn(4)+1) * time.Millisecond)
 			(*job)()
 		})
 	}
 
+	// Let 5 seconds pass so that the goroutine has a chance to finish its last loop
 	s.mockClock.Add(5 * time.Second)
+
+	// Wait for goroutine to actually return and output log message
+	s.tasqConsumer.getWaitGroup().Wait()
 
 	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
 }

@@ -48,6 +48,7 @@ var (
 // and the various parameters that define the task consumption behaviour
 type Consumer struct {
 	mu sync.Mutex
+	wg sync.WaitGroup
 
 	c      chan *func()
 	client *Client
@@ -365,10 +366,16 @@ func (c *Consumer) getPollQuantity() int {
 }
 
 func (c *Consumer) processLoop(ticker *clock.Ticker) {
+	c.wg.Add(1)
+	defer c.wg.Done()
 	defer c.logger.Print("processing stopped")
 	defer ticker.Stop()
 
+	var loopID int
+
 	for {
+		loopID++
+
 		err := c.pingActiveTasks()
 		if err != nil {
 			c.logger.Printf("error pinging active tasks: %s", err)
@@ -421,7 +428,6 @@ func (c *Consumer) activateTasks(tasks []*model.Task) error {
 		if err != nil {
 			errors = append(errors, err)
 			c.registerTaskFail(task)
-			continue
 		}
 	}
 
