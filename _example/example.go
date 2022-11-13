@@ -22,7 +22,7 @@ type SampleTaskArgs struct {
 	Value float64
 }
 
-func processSampleTask(ctx context.Context, task tasq.Task) error {
+func processSampleTask(task tasq.Task) error {
 	var args SampleTaskArgs
 
 	err := task.UnmarshalArgs(&args)
@@ -55,7 +55,7 @@ func consumeTasks(consumer *tasq.Consumer, wg *sync.WaitGroup) {
 	}
 }
 
-func produceTasks(producer *tasq.Producer, ctx context.Context) {
+func produceTasks(producer *tasq.Producer) {
 	taskTicker := time.NewTicker(1 * time.Second)
 
 	for taskIndex := 0; true; taskIndex++ {
@@ -67,9 +67,9 @@ func produceTasks(producer *tasq.Producer, ctx context.Context) {
 			Value: rand.Float64(),
 		}
 
-		t, err := producer.Submit(ctx, taskType, taskArgs, taskQueue, 20, 5)
+		t, err := producer.Submit(taskType, taskArgs, taskQueue, 20, 5)
 		if err != nil {
-			log.Printf("error while submitting task to tasq: %s", err)
+			log.Panicf("error while submitting task to tasq: %s", err)
 		} else {
 			log.Printf("successfully submitted task '%s'", t.GetDetails().ID)
 		}
@@ -77,7 +77,7 @@ func produceTasks(producer *tasq.Producer, ctx context.Context) {
 }
 
 func main() {
-	ctx := context.Background()
+	ctx, cancelCtx := context.WithCancel(context.Background())
 
 	db, err := sql.Open("postgres", "host=127.0.0.1 user=test password=test dbname=test port=5432 sslmode=disable")
 	if err != nil {
@@ -87,7 +87,7 @@ func main() {
 	// instantiate tasq repository to manage the database connection
 	// you can also have it set up the sql DB for you if you provide the dsn string
 	// instead of the *sql.DB instance
-	tasqRepository, err := tasq.NewRepository(ctx, db, "postgres", "tasq", true)
+	tasqRepository, err := tasq.NewRepository(db, "postgres", "tasq", true, 5*time.Second)
 	if err != nil {
 		log.Fatalf("failed to create tasq repository: %s", err)
 	}
@@ -99,7 +99,7 @@ func main() {
 	cleaner := tasqClient.NewCleaner().
 		WithTaskAge(time.Second)
 
-	cleanedTaskCount, err := cleaner.Clean(ctx)
+	cleanedTaskCount, err := cleaner.Clean()
 	if err != nil {
 		log.Fatalf("failed to clean old tasks from queue: %s", err)
 	}
@@ -121,7 +121,7 @@ func main() {
 	}
 
 	// start the consumer
-	err = consumer.Start(ctx)
+	err = consumer.Start()
 	if err != nil {
 		log.Fatalf("failed to start tasq consumer: %s", err)
 	}
@@ -136,15 +136,18 @@ func main() {
 	producer := tasqClient.NewProducer()
 
 	// start the goroutine which produces the tasks and submits them to the tasq queue
-	go produceTasks(producer, ctx)
+	go produceTasks(producer)
 
 	// block the execution
 	<-time.After(30 * time.Second)
-	err = consumer.Stop(ctx)
+	err = consumer.Stop()
 	if err != nil {
 		log.Fatalf("failed to stop tasq consumer: %s", err)
 	}
 
 	// wait until consumer go routine exits
 	consumerWg.Wait()
+
+	// cancel the context
+	cancelCtx()
 }

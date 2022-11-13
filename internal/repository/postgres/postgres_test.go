@@ -66,32 +66,33 @@ func (s *PostgresTestSuite) SetupTest() {
 	var err error
 
 	s.ctx = context.Background()
+
 	s.db, s.sqlMock, err = sqlmock.New()
 	require.Nil(s.T(), err)
 
-	s.mockedRepository, err = NewRepository(s.ctx, s.db, "postgres", "test")
+	s.mockedRepository, err = NewRepository(s.db, "postgres", "test")
 	require.NotNil(s.T(), s.mockedRepository)
 	require.Nil(s.T(), err)
 }
 
 func (s *PostgresTestSuite) TestNewRepository() {
 	// providing the datasource as *sql.DB
-	dbRepository, err := NewRepository(s.ctx, s.db, "postgres", "test")
+	dbRepository, err := NewRepository(s.db, "postgres", "test")
 	assert.NotNil(s.T(), dbRepository)
 	assert.Nil(s.T(), err)
 
 	// providing the datasource as dsn string
-	dsnRepository, err := NewRepository(s.ctx, "testDSN", "postgres", "test")
+	dsnRepository, err := NewRepository("testDSN", "postgres", "test")
 	assert.NotNil(s.T(), dsnRepository)
 	assert.Nil(s.T(), err)
 
 	// providing an invalid driver as dsn string
-	unknownDriverRepository, err := NewRepository(s.ctx, "testDSN", "unknown", "test")
+	unknownDriverRepository, err := NewRepository("testDSN", "unknown", "test")
 	assert.Nil(s.T(), unknownDriverRepository)
 	assert.NotNil(s.T(), err)
 
 	// providing the datasource as unknown datasource type
-	unknownDatasourceRepository, err := NewRepository(s.ctx, false, "postgres", "test")
+	unknownDatasourceRepository, err := NewRepository(false, "postgres", "test")
 	assert.Nil(s.T(), unknownDatasourceRepository)
 	assert.NotNil(s.T(), err)
 }
@@ -365,7 +366,7 @@ func (s *PostgresTestSuite) TestPrepareWithTableName() {
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).WillReturnError(sqlError)
 
 	assert.PanicsWithError(s.T(), "sql error", func() {
-		namedStmt := postgresRepository.prepareWithTableName(s.ctx, "SELECT * FROM {{.tableName}}")
+		namedStmt := postgresRepository.prepareWithTableName("SELECT * FROM {{.tableName}}")
 		assert.Nil(s.T(), namedStmt)
 	})
 }

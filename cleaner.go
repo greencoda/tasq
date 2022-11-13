@@ -1,7 +1,6 @@
 package tasq
 
 import (
-	"context"
 	"time"
 )
 
@@ -28,8 +27,8 @@ func (c *Client) NewCleaner() *Cleaner {
 
 // Clean will initiate the removal of finished (either succeeded or failed) tasks from the queue table
 // if they have been created long enough ago for them to be eligible
-func (c *Cleaner) Clean(ctx context.Context) (int64, error) {
-	return c.client.getRepository().CleanTasks(ctx, c.taskAgeLimit)
+func (c *Cleaner) Clean() (int64, error) {
+	return c.client.getRepository().CleanTasks(c.client.getContext(), c.taskAgeLimit)
 }
 
 // WithTaskAge defines the minimum time duration that must have passed since the creation of a finished task

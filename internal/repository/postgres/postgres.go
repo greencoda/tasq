@@ -19,18 +19,18 @@ type postgresRepository struct {
 	prefix string
 }
 
-func NewRepository(ctx context.Context, dataSource any, driver, prefix string) (repository.IRepository, error) {
+func NewRepository(dataSource any, driver, prefix string) (repository.IRepository, error) {
 	switch d := dataSource.(type) {
 	case string:
-		return newRepositoryFromDSN(ctx, d, driver, prefix)
+		return newRepositoryFromDSN(d, driver, prefix)
 	case *sql.DB:
-		return newRepositoryFromDB(ctx, d, driver, prefix)
+		return newRepositoryFromDB(d, driver, prefix)
 	}
 
 	return nil, fmt.Errorf("unexpected dataSource type: %T", dataSource)
 }
 
-func newRepositoryFromDSN(ctx context.Context, dsn string, driver, prefix string) (repository.IRepository, error) {
+func newRepositoryFromDSN(dsn string, driver, prefix string) (repository.IRepository, error) {
 	dbx, err := sqlx.Open(driver, dsn)
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func newRepositoryFromDSN(ctx context.Context, dsn string, driver, prefix string
 	}, nil
 }
 
-func newRepositoryFromDB(ctx context.Context, db *sql.DB, driver, prefix string) (repository.IRepository, error) {
+func newRepositoryFromDB(db *sql.DB, driver, prefix string) (repository.IRepository, error) {
 	dbx := sqlx.NewDb(db, driver)
 
 	return &postgresRepository{
@@ -91,7 +91,7 @@ func (d *postgresRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID,
 			WHERE
 				"id" = ANY(:pinged_ids)
 			RETURNING id;`
-		stmt = d.prepareWithTableName(ctx, sqlTemplate)
+		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
 	err = stmt.SelectContext(ctx, &pingedTasks, map[string]any{
@@ -130,7 +130,7 @@ func (d *postgresRepository) PollTasks(ctx context.Context, types, queues []stri
 					LIMIT :poll_limit
 				FOR UPDATE )
 			RETURNING *;`
-		stmt = d.prepareWithTableName(ctx, sqlTemplate)
+		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
 	err = stmt.SelectContext(ctx, &polledTasks, map[string]any{
@@ -157,7 +157,7 @@ func (d *postgresRepository) CleanTasks(ctx context.Context, cleanAge time.Durat
 			WHERE
 				"status" = ANY(:statuses) AND
 				"created_at" <= :cleanAt;`
-		stmt = d.prepareWithTableName(ctx, sqlTemplate)
+		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
 	result, err := stmt.ExecContext(ctx, map[string]any{
@@ -185,7 +185,7 @@ func (d *postgresRepository) RegisterStart(ctx context.Context, task *model.Task
 			WHERE
 				"id" = :taskID
 			RETURNING *;`
-		stmt = d.prepareWithTableName(ctx, sqlTemplate)
+		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
 	row := stmt.QueryRowContext(ctx, map[string]any{
@@ -211,7 +211,7 @@ func (d *postgresRepository) RegisterError(ctx context.Context, task *model.Task
 			WHERE
 				"id" = :taskID
 			RETURNING *;`
-		stmt = d.prepareWithTableName(ctx, sqlTemplate)
+		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
 	row := stmt.QueryRowContext(ctx, map[string]any{
@@ -246,7 +246,7 @@ func (d *postgresRepository) registerFinish(ctx context.Context, task *model.Tas
 			WHERE
 				"id" = :taskID
 			RETURNING *;`
-		stmt = d.prepareWithTableName(ctx, sqlTemplate)
+		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
 	row := stmt.QueryRowContext(ctx, map[string]any{
@@ -271,7 +271,7 @@ func (d *postgresRepository) SubmitTask(ctx context.Context, task *model.Task) (
 			VALUES 
 				(:id, :type, :args, :queue, :priority, :status, :maxReceives, :createdAt)
 			RETURNING *;`
-		stmt = d.prepareWithTableName(ctx, sqlTemplate)
+		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
 	row := stmt.QueryRowContext(ctx, map[string]any{
@@ -301,7 +301,7 @@ func (d *postgresRepository) DeleteTask(ctx context.Context, task *model.Task) (
 			WHERE
 				"id" = :taskID
 			RETURNING *;`
-		stmt = d.prepareWithTableName(ctx, sqlTemplate)
+		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
 	_, err = stmt.ExecContext(ctx, map[string]any{
@@ -318,7 +318,7 @@ func (d *postgresRepository) RequeueTask(ctx context.Context, task *model.Task) 
 			WHERE
 				"id" = :taskID
 			RETURNING *;`
-		stmt = d.prepareWithTableName(ctx, sqlTemplate)
+		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
 	row := stmt.QueryRowContext(ctx, map[string]any{
@@ -336,7 +336,7 @@ func (d *postgresRepository) RequeueTask(ctx context.Context, task *model.Task) 
 	return updatedTask, err
 }
 
-func (d *postgresRepository) prepareWithTableName(ctx context.Context, sqlTemplate string) (namedStmt *sqlx.NamedStmt) {
+func (d *postgresRepository) prepareWithTableName(sqlTemplate string) (namedStmt *sqlx.NamedStmt) {
 	var (
 		query = repository.InterpolateSQL(sqlTemplate, map[string]any{
 			"tableName": d.tableName(),
@@ -344,7 +344,7 @@ func (d *postgresRepository) prepareWithTableName(ctx context.Context, sqlTempla
 		err error
 	)
 
-	namedStmt, err = d.db.PrepareNamedContext(ctx, query)
+	namedStmt, err = d.db.PrepareNamed(query)
 	if err != nil {
 		panic(err)
 	}
