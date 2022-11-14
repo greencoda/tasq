@@ -86,7 +86,7 @@ func (s *PostgresTestSuite) TestNewRepository() {
 	assert.Equal(s.T(), "test_tasks", dbPostgresRepository.tableName())
 	assert.Equal(s.T(), "test_task_status", dbPostgresRepository.statusTypeName())
 
-	// providing the datasource as dsn string
+	// providing the datasource as *sql.DB with no prefix
 	noPrefixDBRepository, err := NewRepository(s.db, "postgres", "")
 	assert.NotNil(s.T(), noPrefixDBRepository)
 	assert.Nil(s.T(), err)
