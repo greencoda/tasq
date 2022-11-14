@@ -56,11 +56,21 @@ func (d *postgresRepository) DB() *sql.DB {
 }
 
 func (d *postgresRepository) tableName() string {
-	return d.prefix + "_tasks"
+	var tableNameSegments = []string{"tasks"}
+	if len(d.prefix) > 0 {
+		tableNameSegments = append([]string{d.prefix}, tableNameSegments...)
+	}
+
+	return strings.Join(tableNameSegments, "_")
 }
 
 func (d *postgresRepository) statusTypeName() string {
-	return d.prefix + "_task_status"
+	var typeNameSegments = []string{"task_status"}
+	if len(d.prefix) > 0 {
+		typeNameSegments = append([]string{d.prefix}, typeNameSegments...)
+	}
+
+	return strings.Join(typeNameSegments, "_")
 }
 
 func (d *postgresRepository) Migrate(ctx context.Context) (err error) {

@@ -81,6 +81,21 @@ func (s *PostgresTestSuite) TestNewRepository() {
 	assert.NotNil(s.T(), dbRepository)
 	assert.Nil(s.T(), err)
 
+	dbPostgresRepository, ok := dbRepository.(*postgresRepository)
+	require.True(s.T(), ok)
+	assert.Equal(s.T(), "test_tasks", dbPostgresRepository.tableName())
+	assert.Equal(s.T(), "test_task_status", dbPostgresRepository.statusTypeName())
+
+	// providing the datasource as dsn string
+	noPrefixDBRepository, err := NewRepository(s.db, "postgres", "")
+	assert.NotNil(s.T(), noPrefixDBRepository)
+	assert.Nil(s.T(), err)
+
+	noPrefixDBPostgresRepository, ok := noPrefixDBRepository.(*postgresRepository)
+	require.True(s.T(), ok)
+	assert.Equal(s.T(), "tasks", noPrefixDBPostgresRepository.tableName())
+	assert.Equal(s.T(), "task_status", noPrefixDBPostgresRepository.statusTypeName())
+
 	// providing the datasource as dsn string
 	dsnRepository, err := NewRepository("testDSN", "postgres", "test")
 	assert.NotNil(s.T(), dsnRepository)
