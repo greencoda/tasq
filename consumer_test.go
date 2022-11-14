@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"log"
-	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -28,26 +27,6 @@ func (c *Consumer) setClock(clock clock.Clock) *Consumer {
 
 func (c *Consumer) getWaitGroup() *sync.WaitGroup {
 	return &c.wg
-}
-
-func uuidSliceMatcher(x, y []uuid.UUID) bool {
-	if len(x) != len(y) {
-		return false
-	}
-	diff := make(map[uuid.UUID]int, len(x))
-	for _, _x := range x {
-		diff[_x]++
-	}
-	for _, _y := range y {
-		if _, ok := diff[_y]; !ok {
-			return false
-		}
-		diff[_y] -= 1
-		if diff[_y] == 0 {
-			delete(diff, _y)
-		}
-	}
-	return len(diff) == 0
 }
 
 type ConsumerTestSuite struct {
@@ -154,11 +133,14 @@ func (s *ConsumerTestSuite) TestStartStopTwice() {
 	err = s.tasqConsumer.Stop()
 	assert.Nil(s.T(), err)
 
-	s.mockClock.Add(6 * time.Second)
+	s.mockClock.Add(5 * time.Second)
 
 	// Stop the consumer again
 	err = s.tasqConsumer.Stop()
 	assert.NotNil(s.T(), err)
+
+	// Wait for goroutine to actually return and output log message
+	s.tasqConsumer.getWaitGroup().Wait()
 
 	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
 }
@@ -304,7 +286,10 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
 
-	s.mockClock.Add(11 * time.Second)
+	s.mockClock.Add(10 * time.Second)
+
+	// Wait for goroutine to actually return and output log message
+	s.tasqConsumer.getWaitGroup().Wait()
 
 	assert.Equal(s.T(), "error pinging active tasks: repository error\nprocessing stopped\n", s.logBuffer.String())
 }
@@ -361,7 +346,10 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
 
-	s.mockClock.Add(6 * time.Second)
+	s.mockClock.Add(5 * time.Second)
+
+	// Wait for goroutine to actually return and output log message
+	s.tasqConsumer.getWaitGroup().Wait()
 
 	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
 }
@@ -408,7 +396,10 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
 
-	s.mockClock.Add(6 * time.Second)
+	s.mockClock.Add(5 * time.Second)
+
+	// Wait for goroutine to actually return and output log message
+	s.tasqConsumer.getWaitGroup().Wait()
 
 	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
 }
@@ -432,7 +423,10 @@ func (s *ConsumerTestSuite) TestConsumptionWithUnknownPollStrategy() {
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
 
-	s.mockClock.Add(6 * time.Second)
+	s.mockClock.Add(5 * time.Second)
+
+	// Wait for goroutine to actually return and output log message
+	s.tasqConsumer.getWaitGroup().Wait()
 
 	assert.Equal(s.T(), "error polling for tasks: unknown poll strategy 'pollByMagic'\nprocessing stopped\n", s.logBuffer.String())
 }
@@ -467,7 +461,10 @@ func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
 
-	s.mockClock.Add(6 * time.Second)
+	s.mockClock.Add(5 * time.Second)
+
+	// Wait for goroutine to actually return and output log message
+	s.tasqConsumer.getWaitGroup().Wait()
 
 	assert.Equal(s.T(), "error activating tasks: 1 tasks could not be activated\nprocessing stopped\n", s.logBuffer.String())
 }
@@ -480,29 +477,34 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 		WithMaxActiveTasks(2)
 
 	var (
-		testTask_1 = &model.Task{
-			ID:           uuid.MustParse("1ada263f-61d5-44ac-b99d-2d5ad4f249de"),
-			Type:         "testTask",
-			Args:         []uint8{0x3, 0x2, 0x0, 0x1},
-			Queue:        "testQueue",
-			Priority:     100,
-			Status:       model.StatusNew,
-			ReceiveCount: 0,
-			MaxReceives:  5,
-			CreatedAt:    s.mockClock.Now(),
-			VisibleAt:    s.mockClock.Now(),
-		}
-		testTask_2 = &model.Task{
-			ID:           uuid.MustParse("28032675-bc13-4dcd-8ec6-6aa430fc466a"),
-			Type:         "testTask",
-			Args:         []uint8{0x3, 0x2, 0x0, 0x1},
-			Queue:        "testQueue",
-			Priority:     100,
-			Status:       model.StatusNew,
-			ReceiveCount: 0,
-			MaxReceives:  5,
-			CreatedAt:    s.mockClock.Now(),
-			VisibleAt:    s.mockClock.Now(),
+		testTaskID_1 = uuid.MustParse("1ada263f-61d5-44ac-b99d-2d5ad4f249de")
+		testTaskID_2 = uuid.MustParse("28032675-bc13-4dcd-8ec6-6aa430fc466a")
+
+		testTasks = map[uuid.UUID]*model.Task{
+			testTaskID_1: {
+				ID:           testTaskID_1,
+				Type:         "testTask",
+				Args:         []uint8{0x3, 0x2, 0x0, 0x1},
+				Queue:        "testQueue",
+				Priority:     100,
+				Status:       model.StatusNew,
+				ReceiveCount: 0,
+				MaxReceives:  5,
+				CreatedAt:    s.mockClock.Now(),
+				VisibleAt:    s.mockClock.Now(),
+			},
+			testTaskID_2: {
+				ID:           testTaskID_2,
+				Type:         "testTask",
+				Args:         []uint8{0x3, 0x2, 0x0, 0x1},
+				Queue:        "testQueue",
+				Priority:     100,
+				Status:       model.StatusNew,
+				ReceiveCount: 0,
+				MaxReceives:  5,
+				CreatedAt:    s.mockClock.Now(),
+				VisibleAt:    s.mockClock.Now(),
+			},
 		}
 	)
 
@@ -511,31 +513,35 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 	}, false)
 	require.Nil(s.T(), err)
 
-	// First loop
-	s.mockRepository.On("PingTasks", s.tasqClient.getContext(), []uuid.UUID{}, 15*time.Second).Once().
-		Return([]*model.Task{}, nil)
+	// Respond to pings
+	pingCall := s.mockRepository.On("PingTasks", s.tasqClient.getContext(), mock.AnythingOfType("[]uuid.UUID"), 15*time.Second)
+	pingCall.Run(func(args mock.Arguments) {
+		inputTestIDs, ok := args[1].([]uuid.UUID)
+		require.True(s.T(), ok)
+
+		returnTasks := make([]*model.Task, 0, len(inputTestIDs))
+		for _, taskID := range args[1].([]uuid.UUID) {
+			returnTask, ok := testTasks[taskID]
+			require.True(s.T(), ok)
+
+			returnTasks = append(returnTasks, returnTask)
+		}
+
+		pingCall.ReturnArguments = mock.Arguments{returnTasks, nil}
+	})
+
+	// Respond to polls
+	// First call
 	s.mockRepository.On("PollTasks", s.tasqClient.getContext(), []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1).Once().
 		Return([]*model.Task{
-			testTask_1,
+			testTasks[testTaskID_1],
 		}, nil)
 
-	// Second loop
-	s.mockRepository.On("PingTasks", s.tasqClient.getContext(), []uuid.UUID{testTask_1.ID}, 15*time.Second).Once().
-		Return([]*model.Task{testTask_1}, nil)
+	// Second call
 	s.mockRepository.On("PollTasks", s.tasqClient.getContext(), []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1).Once().
 		Return([]*model.Task{
-			testTask_2,
+			testTasks[testTaskID_2],
 		}, nil)
-
-	// Third loop
-	s.mockRepository.On("PingTasks", s.tasqClient.getContext(), mock.MatchedBy(func(uuids []uuid.UUID) bool {
-		return uuidSliceMatcher(uuids, []uuid.UUID{testTask_1.ID, testTask_2.ID})
-	}), 15*time.Second).Once().
-		Return([]*model.Task{testTask_1, testTask_2}, nil)
-
-	// Subsequent loops
-	s.mockRepository.On("PingTasks", s.tasqClient.getContext(), []uuid.UUID{}, 15*time.Second).
-		Return([]*model.Task{}, nil)
 
 	// Start up the consumer
 	err = s.tasqConsumer.Start()
@@ -548,22 +554,19 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 	assert.Nil(s.T(), err)
 
 	// Mock job handling
-	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), testTask_1).Once().
-		Return(testTask_1, nil)
-	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), testTask_1).Once().
-		Return(testTask_1, nil)
+	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), testTasks[testTaskID_1]).Once().
+		Return(testTasks[testTaskID_1], nil)
+	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), testTasks[testTaskID_1]).Once().
+		Return(testTasks[testTaskID_1], nil)
 
-	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), testTask_2).Once().
-		Return(testTask_2, nil)
-	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), testTask_2).Once().
-		Return(testTask_2, nil)
-
-	time.Sleep(5 * time.Millisecond)
+	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), testTasks[testTaskID_2]).Once().
+		Return(testTasks[testTaskID_2], nil)
+	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), testTasks[testTaskID_2]).Once().
+		Return(testTasks[testTaskID_2], nil)
 
 	// Drain channel of jobs
 	for job := range s.tasqConsumer.Channel() {
 		assert.NotPanics(s.T(), func() {
-			time.Sleep(time.Duration(rand.Intn(4)+1) * time.Millisecond)
 			(*job)()
 		})
 	}

@@ -47,7 +47,6 @@ var (
 // Consumer is a service instance created by a Client with reference to that client
 // and the various parameters that define the task consumption behaviour
 type Consumer struct {
-	mu sync.Mutex
 	wg sync.WaitGroup
 
 	c      chan *func()
@@ -240,15 +239,11 @@ func (c *Consumer) Channel() <-chan *func() {
 }
 
 func (c *Consumer) isRunning() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	return c.running
 }
 
 func (c *Consumer) setRunning(isRunning bool) {
-	c.mu.Lock()
 	c.running = isRunning
-	c.mu.Unlock()
 }
 
 func (c *Consumer) registerTaskStart(task *model.Task) {
@@ -284,7 +279,7 @@ func (c *Consumer) registerTaskSuccess(task *model.Task) {
 		}
 	}
 
-	c.removeAsActive(task)
+	c.removeFromActiveTasks(task)
 }
 
 func (c *Consumer) registerTaskFail(task *model.Task) {
@@ -293,7 +288,7 @@ func (c *Consumer) registerTaskFail(task *model.Task) {
 		panic(err)
 	}
 
-	c.removeAsActive(task)
+	c.removeFromActiveTasks(task)
 }
 
 func (c *Consumer) requeueTask(task *model.Task) {
@@ -302,26 +297,18 @@ func (c *Consumer) requeueTask(task *model.Task) {
 		panic(err)
 	}
 
-	c.removeAsActive(task)
+	c.removeFromActiveTasks(task)
 }
 
 func (c *Consumer) getActiveTaskCount() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	return len(c.activeTasks)
 }
 
-func (c *Consumer) removeAsActive(task *model.Task) {
-	c.mu.Lock()
+func (c *Consumer) removeFromActiveTasks(task *model.Task) {
 	delete(c.activeTasks, task.ID)
-	c.mu.Unlock()
 }
 
 func (c *Consumer) getActiveTaskIDs() []uuid.UUID {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	activeTaskIDs := make([]uuid.UUID, 0, len(c.activeTasks))
 
 	for taskID := range c.activeTasks {
@@ -353,9 +340,6 @@ func (c *Consumer) getPollOrdering() ([]string, error) {
 }
 
 func (c *Consumer) getPollQuantity() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	taskCapacity := c.maxActiveTasks - len(c.activeTasks)
 
 	if c.pollLimit < taskCapacity {
@@ -444,9 +428,7 @@ func (c *Consumer) activateTask(task *model.Task) error {
 		return err
 	}
 
-	c.mu.Lock()
 	c.activeTasks[task.ID] = struct{}{}
-	c.mu.Unlock()
 
 	c.c <- job
 
