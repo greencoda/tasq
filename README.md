@@ -17,7 +17,7 @@ go get -u github.com/greencoda/tasq
 
 ## Usage Example
 
-To try tasq locally, you'll need a PostgreSQL DB backend. You may use the supplied docker-compose.yml file to start a local instace
+To try tasq locally, you'll need a PostgreSQL DB backend. You may use the supplied docker-compose.yml file to start a local instance
 ```shell
 docker-compose -f example/docker-compose.yml up -d
 ```
