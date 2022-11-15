@@ -1,0 +1,31 @@
+image:
+  - melezhik/sparrow:alpine
+  
+tasks:
+ -
+  name: go_test
+  language: Bash
+  code: |
+    go version
+    cd source
+    go install .
+    go run _example/example.go
+  default: true
+  depends:
+    -
+      name: install-go
+ -
+    name: install-go
+    language: Bash
+    code: |
+      sudo apk add go --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community
+    depends:
+      - 
+        name: install-pgsql
+  -
+     name: install-pgsql
+     plugin: sparkyci-service-postgresql 
+     config:
+        db_name: test
+        db_user: test
+        db_pass: test
