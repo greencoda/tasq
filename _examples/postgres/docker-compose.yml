@@ -2,9 +2,11 @@
 version: "3.2"
 
 services:
-  postgres:
-    container_name: tasq_example
+  tasq:
+    container_name: postgres
     image: postgres:14.2-alpine
+    volumes:
+      - ./.dbdata:/var/lib/postgresql
     ports:
       - "5432:5432"
     environment:

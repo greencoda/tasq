@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq/internal/model"
-	_ "github.com/lib/pq"
 )
 
 var (

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/greencoda/tasq/internal/repository"
+	"github.com/greencoda/tasq/internal/repository/mysql"
 	"github.com/greencoda/tasq/internal/repository/postgres"
 )
 
@@ -16,6 +17,11 @@ func NewRepository(dataSource any, driver, prefix string, migrate bool, migratio
 	switch driver {
 	case "postgres":
 		repository, err = postgres.NewRepository(dataSource, driver, prefix)
+		if err != nil {
+			return nil, err
+		}
+	case "mysql":
+		repository, err = mysql.NewRepository(dataSource, driver, prefix)
 		if err != nil {
 			return nil, err
 		}

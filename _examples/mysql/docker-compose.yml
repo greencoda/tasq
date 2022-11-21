@@ -1,0 +1,23 @@
+---
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    command: ["mysqld", "--skip-name-resolve"]
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./.dbdata:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: test
+      MYSQL_ROOT_PASSWORD: root
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+networks:
+  tasq:
+    name: tasq_network
+    external: false
