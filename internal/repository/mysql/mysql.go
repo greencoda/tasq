@@ -3,8 +3,10 @@ package mysql
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"errors"
 	"log"
+
+	"fmt"
 	"strings"
 	"time"
 
@@ -79,19 +81,21 @@ func (d *mysqlRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, vi
 		return []*model.Task{}, nil
 	}
 
+	const sqlTemplate = `UPDATE
+			{{.tableName}}
+		SET
+			visible_at = :visible_at
+		WHERE
+			id IN (:pinged_ids)
+		RETURNING id;`
+
 	var (
-		pingedTime  = time.Now()
-		sqlTemplate = `UPDATE
-				{{.tableName}}
-			SET
-				visible_at = :visible_at
-			WHERE
-				id IN (:pinged_ids)
-			RETURNING id;`
-		stmt = d.prepareWithTableName(sqlTemplate)
+		pingedMySQLTasks []*MySQLTask
+		pingedTime       = time.Now()
+		stmt             = d.prepareWithTableName(sqlTemplate)
 	)
 
-	err = stmt.SelectContext(ctx, &pingedTasks, map[string]any{
+	err = stmt.SelectContext(ctx, &pingedMySQLTasks, map[string]any{
 		"visible_at": pingedTime.Add(visibilityTimeout),
 		"pinged_ids": taskIDs,
 	})
@@ -99,68 +103,116 @@ func (d *mysqlRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, vi
 		return []*model.Task{}, err
 	}
 
-	return pingedTasks, nil
+	return mySQLTasksToTasks(pingedMySQLTasks), nil
 }
 
 func (d *mysqlRepository) PollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering []string, pollLimit int) (polledTasks []*model.Task, err error) {
-	if pollLimit == 0 {
-		return []*model.Task{}, nil
-	}
-
-	var (
-		pollTime    = time.Now()
-		sqlTemplate = `UPDATE {{.tableName}} SET
+	const (
+		selectPolledTasksSQLTemplate = `SELECT 
+				id 
+			FROM 
+				{{.tableName}}
+			WHERE
+				type IN (:poll_types) AND
+				queue IN (:poll_queues) AND 
+				status IN (:poll_statuses) AND 
+				visible_at <= :poll_time
+			ORDER BY
+				:poll_ordering
+			LIMIT :poll_limit
+			FOR UPDATE SKIP LOCKED;`
+		updatePolledTasksSQLTemplate = `UPDATE {{.tableName}} 
+			SET
 				status = :status,
-				receive_count = "receive_count" + 1,
+				receive_count = receive_count + 1,
 				visible_at = :visible_at
 			WHERE
-				id IN (
-					SELECT
-						id FROM {{.tableName}}
-					WHERE
-						type IN (:poll_types) AND
-						queue IN (:poll_queues) AND 
-						status IN (:poll_statuses) AND 
-						visible_at <= :poll_time
-					ORDER BY
-						:poll_ordering
-					LIMIT :poll_limit
-				FOR UPDATE )
-			RETURNING *;`
-		stmt = d.prepareWithTableName(sqlTemplate)
+				id IN (:polledTaskIDs);`
+		selectUpdatedTasksSQLTemplate = `SELECT * 
+			FROM 
+				{{.tableName}}
+			WHERE
+				id IN (:polledTaskIDs);`
 	)
 
-	err = stmt.SelectContext(ctx, &polledTasks, map[string]any{
-		"status":        model.StatusEnqueued,
-		"visible_at":    pollTime.Add(visibilityTimeout),
-		"poll_types":    types,
-		"poll_queues":   queues,
-		"poll_statuses": model.OpenTaskStatuses,
-		"poll_time":     pollTime,
-		"poll_ordering": ordering,
-		"poll_limit":    pollLimit,
-	})
-	if err != nil && err != sql.ErrNoRows {
+	var (
+		polledTaskIDs                                 []MySQLTaskID
+		pollTime                                      = time.Now()
+		selectPolledTasksQuery, selectPolledTasksArgs = d.getQueryWithTableName(selectPolledTasksSQLTemplate, map[string]any{
+			"poll_types":    types,
+			"poll_queues":   queues,
+			"poll_statuses": model.OpenTaskStatuses,
+			"poll_time":     pollTime,
+			"poll_ordering": sliceToMySQLEntityList(ordering),
+			"poll_limit":    pollLimit,
+		})
+	)
+
+	tx, err := d.db.Beginx()
+	if err != nil {
+		return []*model.Task{}, err
+	}
+	defer rollback(tx)
+
+	err = tx.SelectContext(ctx, &polledTaskIDs, selectPolledTasksQuery, selectPolledTasksArgs...)
+	if err == sql.ErrNoRows {
+		return []*model.Task{}, nil
+	}
+	if err != nil {
 		return []*model.Task{}, err
 	}
 
-	return polledTasks, nil
+	var (
+		updatePolledTasksQuery, updatePolledTasksArgs = d.getQueryWithTableName(updatePolledTasksSQLTemplate, map[string]any{
+			"status":        model.StatusEnqueued,
+			"visible_at":    pollTime.Add(visibilityTimeout),
+			"polledTaskIDs": polledTaskIDs,
+		})
+	)
+
+	_, err = tx.ExecContext(ctx, updatePolledTasksQuery, updatePolledTasksArgs...)
+	if err != nil {
+		return []*model.Task{}, err
+	}
+
+	var (
+		polledMySQLTasks                                []*MySQLTask
+		selectUpdatedTasksQuery, selectUpdatedTasksArgs = d.getQueryWithTableName(selectUpdatedTasksSQLTemplate, map[string]any{
+			"polledTaskIDs": polledTaskIDs,
+		})
+	)
+
+	err = tx.SelectContext(ctx, &polledMySQLTasks, selectUpdatedTasksQuery, selectUpdatedTasksArgs...)
+	if err == sql.ErrNoRows {
+		return []*model.Task{}, nil
+	}
+	if err != nil {
+		return []*model.Task{}, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return []*model.Task{}, err
+	}
+
+	return mySQLTasksToTasks(polledMySQLTasks), nil
 }
 
 func (d *mysqlRepository) CleanTasks(ctx context.Context, cleanAge time.Duration) (rowsAffected int64, err error) {
+	const cleanTasksSQLTemplate = `DELETE FROM {{.tableName}}
+		WHERE
+			status IN (:statuses) AND
+			created_at <= :cleanAt;`
+
 	var (
-		cleanTime   = time.Now()
-		sqlTemplate = `DELETE FROM {{.tableName}}
-			WHERE
-				status IN (:statuses) AND
-				created_at <= :cleanAt;`
-		stmt = d.prepareWithTableName(sqlTemplate)
+		cleanTime                       = time.Now()
+		cleanTasksQuery, cleanTasksArgs = d.getQueryWithTableName(cleanTasksSQLTemplate, map[string]any{
+			"statuses": model.FinishedTaskStatuses,
+			"cleanAt":  cleanTime.Add(-cleanAge),
+		})
 	)
 
-	result, err := stmt.ExecContext(ctx, map[string]any{
-		"statuses": sliceToMySQLValueList(model.FinishedTaskStatuses),
-		"cleanAt":  cleanTime.Add(-cleanAge),
-	})
+	result, err := d.db.ExecContext(ctx, cleanTasksQuery, cleanTasksArgs...)
 	if err != nil {
 		return 0, err
 	}
@@ -174,24 +226,47 @@ func (d *mysqlRepository) CleanTasks(ctx context.Context, cleanAge time.Duration
 }
 
 func (d *mysqlRepository) RegisterStart(ctx context.Context, task *model.Task) (updatedTask *model.Task, err error) {
-	var (
-		startTime   = time.Now()
-		sqlTemplate = `UPDATE {{.tableName}} SET
-				"status" = :status,
-				"started_at" = :startTime
+	const (
+		updateTaskSQLTemplate = `UPDATE 
+				{{.tableName}} 
+			SET
+				status = :status,
+				started_at = :startTime
 			WHERE
-				"id" = :taskID
-			RETURNING *;`
-		stmt = d.prepareWithTableName(sqlTemplate)
+				id = :taskID;`
+		selectUpdatedTaskSQLTemplate = `SELECT * 
+			FROM 
+				{{.tableName}}
+			WHERE
+				id = :taskID;`
 	)
 
-	row := stmt.QueryRowContext(ctx, map[string]any{
+	tx, err := d.db.Beginx()
+	if err != nil {
+		return &model.Task{}, err
+	}
+	defer rollback(tx)
+
+	var (
+		startTime             = time.Now()
+		updateTaskSTMT        = d.prepareTxWithTableName(updateTaskSQLTemplate, tx)
+		selectUpdatedTaskSTMT = d.prepareTxWithTableName(selectUpdatedTaskSQLTemplate, tx)
+	)
+
+	_, err = updateTaskSTMT.ExecContext(ctx, map[string]any{
 		"status":    model.StatusInProgress,
 		"startTime": startTime,
 		"taskID":    task.ID,
 	})
+	if err != nil {
+		return &model.Task{}, err
+	}
 
-	updatedTask = new(model.Task)
+	updatedTask = new(model.Task) // TODO: test if this is needed
+
+	row := selectUpdatedTaskSTMT.QueryRowContext(ctx, map[string]any{
+		"taskID": task.ID,
+	})
 
 	err = row.StructScan(updatedTask)
 	if err != nil && err != sql.ErrNoRows {
@@ -202,21 +277,44 @@ func (d *mysqlRepository) RegisterStart(ctx context.Context, task *model.Task) (
 }
 
 func (d *mysqlRepository) RegisterError(ctx context.Context, task *model.Task, taskError error) (updatedTask *model.Task, err error) {
-	var (
-		sqlTemplate = `UPDATE {{.tableName}} SET
+	const (
+		updateTaskSQLTemplate = `UPDATE 
+				{{.tableName}} 
+			SET
 				"last_error" = :errorMessage
 			WHERE
-				"id" = :taskID
-			RETURNING *;`
-		stmt = d.prepareWithTableName(sqlTemplate)
+				id = :taskID;`
+		selectUpdatedTaskSQLTemplate = `SELECT * 
+			FROM 
+				{{.tableName}}
+			WHERE
+				id = :taskID;`
 	)
 
-	row := stmt.QueryRowContext(ctx, map[string]any{
+	tx, err := d.db.Beginx()
+	if err != nil {
+		return &model.Task{}, err
+	}
+	defer rollback(tx)
+
+	var (
+		updateTaskSTMT        = d.prepareTxWithTableName(updateTaskSQLTemplate, tx)
+		selectUpdatedTaskSTMT = d.prepareTxWithTableName(selectUpdatedTaskSQLTemplate, tx)
+	)
+
+	_, err = updateTaskSTMT.ExecContext(ctx, map[string]any{
 		"errorMessage": taskError.Error(),
 		"taskID":       task.ID,
 	})
+	if err != nil {
+		return &model.Task{}, err
+	}
 
-	updatedTask = new(model.Task)
+	updatedTask = new(model.Task) // TODO: test if this is needed
+
+	row := selectUpdatedTaskSTMT.QueryRowContext(ctx, map[string]any{
+		"taskID": task.ID,
+	})
 
 	err = row.StructScan(updatedTask)
 	if err != nil && err != sql.ErrNoRows {
@@ -235,27 +333,57 @@ func (d *mysqlRepository) RegisterFailure(ctx context.Context, task *model.Task)
 }
 
 func (d *mysqlRepository) registerFinish(ctx context.Context, task *model.Task, finishStatus model.TaskStatus) (updatedTask *model.Task, err error) {
-	var (
-		finishTime  = time.Now()
-		sqlTemplate = `UPDATE {{.tableName}} SET
-				"status" = :status,
-				"finished_at" = :finishTime
+	const (
+		updateTaskSQLTemplate = `UPDATE 
+				{{.tableName}} 
+			SET
+				status = :status,
+				finished_at = :finishTime
 			WHERE
-				"id" = :taskID
-			RETURNING *;`
-		stmt = d.prepareWithTableName(sqlTemplate)
+				id = :taskID;`
+		selectUpdatedTaskSQLTemplate = `SELECT * 
+			FROM 
+				{{.tableName}}
+			WHERE
+				id = :taskID;`
 	)
 
-	row := stmt.QueryRowContext(ctx, map[string]any{
-		"status":     finishStatus,
-		"finishTime": finishTime,
-		"taskID":     task.ID,
-	})
+	tx, err := d.db.Beginx()
+	if err != nil {
+		return &model.Task{}, err
+	}
+	defer rollback(tx)
 
-	updatedTask = new(model.Task)
+	var (
+		finishTime                        = time.Now()
+		updateTasksQuery, updateTasksArgs = d.getQueryWithTableName(updateTaskSQLTemplate, map[string]any{
+			"status":     finishStatus,
+			"finishTime": finishTime,
+			"taskID":     task.ID,
+		})
+		selectUpdatedTasksQuery, selectUpdatedTasksArgs = d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
+			"taskID": task.ID,
+		})
+	)
 
-	err = row.StructScan(updatedTask)
-	if err != nil && err != sql.ErrNoRows {
+	_, err = tx.ExecContext(ctx, updateTasksQuery, updateTasksArgs...)
+	if err != nil {
+		return &model.Task{}, err
+	}
+
+	var updatedMySQLTask = new(MySQLTask)
+
+	err = tx.GetContext(ctx, updatedMySQLTask, selectUpdatedTasksQuery, selectUpdatedTasksArgs...)
+	if err == sql.ErrNoRows {
+		return &model.Task{}, nil
+	}
+	if err != nil {
+		log.Printf("keke")
+		return &model.Task{}, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
 		return &model.Task{}, err
 	}
 
@@ -263,16 +391,37 @@ func (d *mysqlRepository) registerFinish(ctx context.Context, task *model.Task, 
 }
 
 func (d *mysqlRepository) SubmitTask(ctx context.Context, task *model.Task) (submittedTask *model.Task, err error) {
-	var (
-		sqlTemplate = `INSERT INTO {{.tableName}} (id, type, args, queue, priority, status, max_receives, created_at) 
-			VALUES 
-				(:id, :type, :args, :queue, :priority, :status, :maxReceives, :createdAt)
-			RETURNING *;`
-		stmt = d.prepareWithTableName(sqlTemplate)
+	const (
+		insertTaskSQLTemplate = `INSERT INTO 
+				{{.tableName}} 
+				(id, type, args, queue, priority, status, max_receives, created_at) 
+			VALUES
+				(:id, :type, :args, :queue, :priority, :status, :maxReceives, :createdAt);`
+		selectInsertedTaskSQLTemplate = `SELECT * 
+			FROM 
+				{{.tableName}}
+			WHERE
+				id = :taskID;`
 	)
 
-	row := stmt.QueryRowContext(ctx, map[string]any{
-		"id":          task.ID,
+	tx, err := d.db.Beginx()
+	if err != nil {
+		return &model.Task{}, err
+	}
+	defer rollback(tx)
+
+	var (
+		insertTaskSTMT         = d.prepareTxWithTableName(insertTaskSQLTemplate, tx)
+		selectInsertedTaskSTMT = d.prepareTxWithTableName(selectInsertedTaskSQLTemplate, tx)
+	)
+
+	taskID, err := task.ID.MarshalBinary()
+	if err != nil {
+		return &model.Task{}, err
+	}
+
+	_, err = insertTaskSTMT.ExecContext(ctx, map[string]any{
+		"id":          taskID,
 		"type":        task.Type,
 		"args":        task.Args,
 		"queue":       task.Queue,
@@ -281,49 +430,84 @@ func (d *mysqlRepository) SubmitTask(ctx context.Context, task *model.Task) (sub
 		"maxReceives": task.MaxReceives,
 		"createdAt":   task.CreatedAt,
 	})
-
-	submittedTask = new(model.Task)
-
-	err = row.StructScan(submittedTask)
 	if err != nil {
 		return &model.Task{}, err
 	}
 
-	return submittedTask, nil
+	row := selectInsertedTaskSTMT.QueryRowContext(ctx, map[string]any{
+		"taskID": taskID,
+	})
+
+	var submittedMySQLTask MySQLTask
+
+	err = row.StructScan(&submittedMySQLTask)
+	if err != nil && err != sql.ErrNoRows {
+
+		return &model.Task{}, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return &model.Task{}, err
+	}
+
+	return submittedMySQLTask.toTask(), nil
 }
 
 func (d *mysqlRepository) DeleteTask(ctx context.Context, task *model.Task) (err error) {
-	var (
-		sqlTemplate = `DELETE FROM {{.tableName}}
-			WHERE
-				"id" = :taskID
-			RETURNING *;`
-		stmt = d.prepareWithTableName(sqlTemplate)
-	)
+	const deleteTaskSQLTemplate = `DELETE FROM 
+			{{.tableName}}
+		WHERE
+			"id" = :taskID;`
 
-	_, err = stmt.ExecContext(ctx, map[string]any{
+	var deleteTaskQuery, deleteTaskArgs = d.getQueryWithTableName(deleteTaskSQLTemplate, map[string]any{
 		"taskID": task.ID,
 	})
+
+	_, err = d.db.ExecContext(ctx, deleteTaskQuery, deleteTaskArgs...)
 
 	return err
 }
 
 func (d *mysqlRepository) RequeueTask(ctx context.Context, task *model.Task) (updatedTask *model.Task, err error) {
-	var (
-		sqlTemplate = `UPDATE {{.tableName}} SET
+	const (
+		updateTaskSQLTemplate = `UPDATE 
+				{{.tableName}} 
+			SET
 				"status" = :status
 			WHERE
-				"id" = :taskID
-			RETURNING *;`
-		stmt = d.prepareWithTableName(sqlTemplate)
+				"id" = :taskID;`
+		selectUpdatedTaskSQLTemplate = `SELECT * 
+			FROM 
+				{{.tableName}}
+			WHERE
+				id = :taskID;`
 	)
 
-	row := stmt.QueryRowContext(ctx, map[string]any{
+	tx, err := d.db.Beginx()
+	if err != nil {
+		return &model.Task{}, err
+	}
+	defer rollback(tx)
+
+	var (
+		updateTaskSTMT        = d.prepareTxWithTableName(updateTaskSQLTemplate, tx)
+		selectUpdatedTaskSTMT = d.prepareTxWithTableName(selectUpdatedTaskSQLTemplate, tx)
+	)
+
+	_, err = updateTaskSTMT.ExecContext(ctx, map[string]any{
 		"status": model.StatusNew,
 		"taskID": task.ID,
 	})
+	if err != nil {
+		return &model.Task{}, err
+	}
 
-	updatedTask = new(model.Task)
+	updatedTask = new(model.Task) // TODO: test if this is needed
+
+	row := selectUpdatedTaskSTMT.QueryRowContext(ctx, map[string]any{
+		"taskID": task.ID,
+	})
 
 	err = row.StructScan(updatedTask)
 	if err != nil && err != sql.ErrNoRows {
@@ -341,8 +525,6 @@ func (d *mysqlRepository) prepareWithTableName(sqlTemplate string) (namedStmt *s
 		err error
 	)
 
-	log.Printf("%s", query)
-
 	namedStmt, err = d.db.PrepareNamed(query)
 	if err != nil {
 		panic(err)
@@ -351,8 +533,42 @@ func (d *mysqlRepository) prepareWithTableName(sqlTemplate string) (namedStmt *s
 	return namedStmt
 }
 
+func (d *mysqlRepository) prepareTxWithTableName(sqlTemplate string, tx *sqlx.Tx) (namedStmt *sqlx.NamedStmt) {
+	var (
+		query = repository.InterpolateSQL(sqlTemplate, map[string]any{
+			"tableName": d.tableName(),
+		})
+		err error
+	)
+
+	namedStmt, err = tx.PrepareNamed(query)
+	if err != nil {
+		panic(err)
+	}
+
+	return namedStmt
+}
+
+func (d *mysqlRepository) getQueryWithTableName(sqlTemplate string, args ...any) (string, []any) {
+	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
+		"tableName": d.tableName(),
+	})
+
+	query, args, err := sqlx.Named(query, args)
+	if err != nil {
+		panic(err)
+	}
+
+	query, args, err = sqlx.In(query, args...)
+	if err != nil {
+		panic(err)
+	}
+
+	return d.db.Rebind(query), args
+}
+
 func (d *mysqlRepository) migrateTable(ctx context.Context) error {
-	var sqlTemplate = `CREATE TABLE IF NOT EXISTS {{.tableName}} (
+	const sqlTemplate = `CREATE TABLE IF NOT EXISTS {{.tableName}} (
             id binary(16) NOT NULL,
             type text NOT NULL,
             args longblob NOT NULL,
@@ -382,6 +598,16 @@ func (d *mysqlRepository) migrateTable(ctx context.Context) error {
 	return nil
 }
 
+func sliceToMySQLEntityList[T any](slice []T) string {
+	var stringSlice = make([]string, 0, len(slice))
+
+	for _, s := range slice {
+		stringSlice = append(stringSlice, fmt.Sprint(s))
+	}
+
+	return strings.Join(stringSlice, ` `)
+}
+
 func sliceToMySQLValueList[T any](slice []T) string {
 	var stringSlice = make([]string, 0, len(slice))
 
@@ -389,5 +615,12 @@ func sliceToMySQLValueList[T any](slice []T) string {
 		stringSlice = append(stringSlice, fmt.Sprint(s))
 	}
 
-	return fmt.Sprintf("'%s'", strings.Join(stringSlice, "','"))
+	return fmt.Sprintf(`"%s"`, strings.Join(stringSlice, `", "`))
+}
+
+func rollback(tx *sqlx.Tx) {
+	err := tx.Rollback()
+	if err != nil && !errors.Is(err, sql.ErrTxDone) {
+		panic(err)
+	}
 }

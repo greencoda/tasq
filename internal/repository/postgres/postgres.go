@@ -309,8 +309,7 @@ func (d *postgresRepository) DeleteTask(ctx context.Context, task *model.Task) (
 	var (
 		sqlTemplate = `DELETE FROM {{.tableName}}
 			WHERE
-				"id" = :taskID
-			RETURNING *;`
+				"id" = :taskID;`
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
