@@ -69,6 +69,24 @@ type MySQLTask struct {
 	VisibleAt    string           `db:"visible_at"`
 }
 
+func newFromTask(task *model.Task) *MySQLTask {
+	return &MySQLTask{
+		ID:           MySQLTaskID(task.ID),
+		Type:         task.Type,
+		Args:         task.Args,
+		Queue:        task.Queue,
+		Priority:     task.Priority,
+		Status:       task.Status,
+		ReceiveCount: task.ReceiveCount,
+		MaxReceives:  task.MaxReceives,
+		LastError:    task.LastError,
+		CreatedAt:    timeToString(task.CreatedAt),
+		StartedAt:    timeToSQLNullString(task.StartedAt),
+		FinishedAt:   timeToSQLNullString(task.FinishedAt),
+		VisibleAt:    timeToString(task.VisibleAt),
+	}
+}
+
 func (t *MySQLTask) toTask() *model.Task {
 	return &model.Task{
 		ID:           uuid.UUID(t.ID),
@@ -95,6 +113,24 @@ func mySQLTasksToTasks(mySQLTasks []*MySQLTask) []*model.Task {
 	}
 
 	return tasks
+}
+
+func timeToString(t time.Time) string {
+	return t.Format(timeFormat)
+}
+
+func timeToSQLNullString(t *time.Time) sql.NullString {
+	if t == nil {
+		return sql.NullString{
+			String: "",
+			Valid:  false,
+		}
+	}
+
+	return sql.NullString{
+		String: t.Format(timeFormat),
+		Valid:  true,
+	}
 }
 
 func parseTime(input string) time.Time {

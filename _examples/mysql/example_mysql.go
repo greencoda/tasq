@@ -111,9 +111,10 @@ func main() {
 	consumer := tasqClient.NewConsumer().
 		WithQueues(taskQueue).
 		WithChannelSize(10).
-		WithPollInterval(10 * time.Second).
+		WithPollInterval(1 * time.Second).
 		WithPollStrategy(tasq.PollStrategyByPriority).
-		WithAutoDeleteOnSuccess(false)
+		WithAutoDeleteOnSuccess(true).
+		WithLogger(log.Default())
 
 	// teach the consumer to handle tasks with the type "sampleTask" with the function "processSampleTask"
 	err = consumer.Learn(taskType, processSampleTask, false)

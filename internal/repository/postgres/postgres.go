@@ -153,7 +153,7 @@ func (d *postgresRepository) PollTasks(ctx context.Context, types, queues []stri
 		"poll_ordering": pq.Array(ordering),
 		"poll_limit":    pollLimit,
 	})
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil {
 		return []*model.Task{}, err
 	}
 
