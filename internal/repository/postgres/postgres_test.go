@@ -19,8 +19,9 @@ import (
 )
 
 var (
-	testTask    = model.NewTask("testTask", true, "testQueue", 100, 5)
-	taskColumns = []string{
+	testTask         = model.NewTask("testTask", true, "testQueue", 100, 5)
+	testPostgresTask = newFromTask(testTask)
+	taskColumns      = []string{
 		"id",
 		"type",
 		"args",
@@ -36,19 +37,19 @@ var (
 		"visible_at",
 	}
 	taskValues = []driver.Value{
-		testTask.ID,
-		testTask.Type,
-		testTask.Args,
-		testTask.Queue,
-		testTask.Priority,
-		testTask.Status,
-		testTask.ReceiveCount,
-		testTask.MaxReceives,
-		testTask.LastError,
-		testTask.CreatedAt,
-		testTask.StartedAt,
-		testTask.FinishedAt,
-		testTask.VisibleAt,
+		testPostgresTask.ID,
+		testPostgresTask.Type,
+		testPostgresTask.Args,
+		testPostgresTask.Queue,
+		testPostgresTask.Priority,
+		testPostgresTask.Status,
+		testPostgresTask.ReceiveCount,
+		testPostgresTask.MaxReceives,
+		testPostgresTask.LastError,
+		testPostgresTask.CreatedAt,
+		testPostgresTask.StartedAt,
+		testPostgresTask.FinishedAt,
+		testPostgresTask.VisibleAt,
 	}
 	sqlError  = errors.New("sql error")
 	taskError = errors.New("task error")
@@ -60,6 +61,10 @@ type PostgresTestSuite struct {
 	db               *sql.DB
 	sqlMock          sqlmock.Sqlmock
 	mockedRepository repository.IRepository
+}
+
+func TestTaskTestSuite(t *testing.T) {
+	suite.Run(t, new(PostgresTestSuite))
 }
 
 func (s *PostgresTestSuite) SetupTest() {
@@ -338,7 +343,7 @@ func (s *PostgresTestSuite) TestSubmitTask() {
 }
 
 func (s *PostgresTestSuite) TestDeleteTask() {
-	var stmtMockRegexp = regexp.QuoteMeta(`DELETE FROM test_tasks WHERE "id" = $1 RETURNING *;`)
+	var stmtMockRegexp = regexp.QuoteMeta(`DELETE FROM test_tasks WHERE "id" = $1;`)
 
 	// deleting task when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectExec().WillReturnError(sqlError)
@@ -381,11 +386,6 @@ func (s *PostgresTestSuite) TestPrepareWithTableName() {
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).WillReturnError(sqlError)
 
 	assert.PanicsWithError(s.T(), "sql error", func() {
-		namedStmt := postgresRepository.prepareWithTableName("SELECT * FROM {{.tableName}}")
-		assert.Nil(s.T(), namedStmt)
+		_ = postgresRepository.prepareWithTableName("SELECT * FROM {{.tableName}}")
 	})
-}
-
-func TestTaskTestSuite(t *testing.T) {
-	suite.Run(t, new(PostgresTestSuite))
 }

@@ -18,19 +18,6 @@ func (i *MySQLTaskID) Scan(src any) error {
 	switch src := src.(type) {
 	case nil:
 		return nil
-
-	// case string:
-	// 	if len(src) == 0 {
-	// 		return nil
-	// 	}
-
-	// 	// see Parse for required string format
-	// 	u, err := uuid.Parse(src)
-	// 	if err != nil {
-	// 		return fmt.Errorf("Scan: %v", err)
-	// 	}
-
-	// 	*i = [16]byte(u)
 	case []byte:
 		if len(src) == 0 {
 			return nil
@@ -41,7 +28,6 @@ func (i *MySQLTaskID) Scan(src any) error {
 		}
 
 		copy((*i)[:], src)
-
 	default:
 		return fmt.Errorf("Scan: unable to scan type %T into MySQLTaskID", src)
 	}
@@ -53,7 +39,7 @@ func (i MySQLTaskID) Value() (driver.Value, error) {
 	return i[:], nil
 }
 
-type MySQLTask struct {
+type mySQLTask struct {
 	ID           MySQLTaskID      `db:"id"`
 	Type         string           `db:"type"`
 	Args         []byte           `db:"args"`
@@ -69,8 +55,8 @@ type MySQLTask struct {
 	VisibleAt    string           `db:"visible_at"`
 }
 
-func newFromTask(task *model.Task) *MySQLTask {
-	return &MySQLTask{
+func newFromTask(task *model.Task) *mySQLTask {
+	return &mySQLTask{
 		ID:           MySQLTaskID(task.ID),
 		Type:         task.Type,
 		Args:         task.Args,
@@ -87,7 +73,7 @@ func newFromTask(task *model.Task) *MySQLTask {
 	}
 }
 
-func (t *MySQLTask) toTask() *model.Task {
+func (t *mySQLTask) toTask() *model.Task {
 	return &model.Task{
 		ID:           uuid.UUID(t.ID),
 		Type:         t.Type,
@@ -105,7 +91,7 @@ func (t *MySQLTask) toTask() *model.Task {
 	}
 }
 
-func mySQLTasksToTasks(mySQLTasks []*MySQLTask) []*model.Task {
+func mySQLTasksToTasks(mySQLTasks []*mySQLTask) []*model.Task {
 	tasks := make([]*model.Task, len(mySQLTasks))
 
 	for i, mySQLTask := range mySQLTasks {

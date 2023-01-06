@@ -56,12 +56,13 @@ func (d *postgresRepository) DB() *sql.DB {
 }
 
 func (d *postgresRepository) tableName() string {
-	var tableNameSegments = []string{"tasks"}
+	const tableName = "tasks"
+
 	if len(d.prefix) > 0 {
-		tableNameSegments = append([]string{d.prefix}, tableNameSegments...)
+		return d.prefix + "_" + tableName
 	}
 
-	return strings.Join(tableNameSegments, "_")
+	return tableName
 }
 
 func (d *postgresRepository) statusTypeName() string {
@@ -87,12 +88,13 @@ func (d *postgresRepository) Migrate(ctx context.Context) (err error) {
 	return nil
 }
 
-func (d *postgresRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibilityTimeout time.Duration) (pingedTasks []*model.Task, err error) {
+func (d *postgresRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibilityTimeout time.Duration) ([]*model.Task, error) {
 	if len(taskIDs) == 0 {
 		return []*model.Task{}, nil
 	}
 
 	var (
+		pingedTasks []*postgresTask
 		pingedTime  = time.Now()
 		sqlTemplate = `UPDATE
 				{{.tableName}}
@@ -104,23 +106,24 @@ func (d *postgresRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID,
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
-	err = stmt.SelectContext(ctx, &pingedTasks, map[string]any{
+	err := stmt.SelectContext(ctx, &pingedTasks, map[string]any{
 		"visible_at": pingedTime.Add(visibilityTimeout),
 		"pinged_ids": pq.Array(taskIDs),
 	})
-	if err != nil {
+	if err != nil && err != sql.ErrNoRows {
 		return []*model.Task{}, err
 	}
 
-	return pingedTasks, nil
+	return postgresTasksToTasks(pingedTasks), nil
 }
 
-func (d *postgresRepository) PollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering []string, pollLimit int) (polledTasks []*model.Task, err error) {
+func (d *postgresRepository) PollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering []string, pollLimit int) ([]*model.Task, error) {
 	if pollLimit == 0 {
 		return []*model.Task{}, nil
 	}
 
 	var (
+		polledTasks []*postgresTask
 		pollTime    = time.Now()
 		sqlTemplate = `UPDATE {{.tableName}} SET
 				"status" = :status,
@@ -143,7 +146,7 @@ func (d *postgresRepository) PollTasks(ctx context.Context, types, queues []stri
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
-	err = stmt.SelectContext(ctx, &polledTasks, map[string]any{
+	err := stmt.SelectContext(ctx, &polledTasks, map[string]any{
 		"status":        model.StatusEnqueued,
 		"visible_at":    pollTime.Add(visibilityTimeout),
 		"poll_types":    pq.Array(types),
@@ -153,11 +156,11 @@ func (d *postgresRepository) PollTasks(ctx context.Context, types, queues []stri
 		"poll_ordering": pq.Array(ordering),
 		"poll_limit":    pollLimit,
 	})
-	if err != nil {
+	if err != nil && err != sql.ErrNoRows {
 		return []*model.Task{}, err
 	}
 
-	return polledTasks, nil
+	return postgresTasksToTasks(polledTasks), nil
 }
 
 func (d *postgresRepository) CleanTasks(ctx context.Context, cleanAge time.Duration) (rowsAffected int64, err error) {
@@ -186,8 +189,9 @@ func (d *postgresRepository) CleanTasks(ctx context.Context, cleanAge time.Durat
 	return rowsAffected, nil
 }
 
-func (d *postgresRepository) RegisterStart(ctx context.Context, task *model.Task) (updatedTask *model.Task, err error) {
+func (d *postgresRepository) RegisterStart(ctx context.Context, task *model.Task) (*model.Task, error) {
 	var (
+		updatedTask = new(postgresTask)
 		startTime   = time.Now()
 		sqlTemplate = `UPDATE {{.tableName}} SET
 				"status" = :status,
@@ -198,24 +202,23 @@ func (d *postgresRepository) RegisterStart(ctx context.Context, task *model.Task
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
-	row := stmt.QueryRowContext(ctx, map[string]any{
-		"status":    model.StatusInProgress,
-		"startTime": startTime,
-		"taskID":    task.ID,
-	})
-
-	updatedTask = new(model.Task)
-
-	err = row.StructScan(updatedTask)
+	err := stmt.
+		QueryRowContext(ctx, map[string]any{
+			"status":    model.StatusInProgress,
+			"startTime": startTime,
+			"taskID":    task.ID,
+		}).
+		StructScan(updatedTask)
 	if err != nil && err != sql.ErrNoRows {
 		return &model.Task{}, err
 	}
 
-	return updatedTask, nil
+	return updatedTask.toTask(), nil
 }
 
-func (d *postgresRepository) RegisterError(ctx context.Context, task *model.Task, taskError error) (updatedTask *model.Task, err error) {
+func (d *postgresRepository) RegisterError(ctx context.Context, task *model.Task, taskError error) (*model.Task, error) {
 	var (
+		updatedTask = new(postgresTask)
 		sqlTemplate = `UPDATE {{.tableName}} SET
 				"last_error" = :errorMessage
 			WHERE
@@ -224,19 +227,17 @@ func (d *postgresRepository) RegisterError(ctx context.Context, task *model.Task
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
-	row := stmt.QueryRowContext(ctx, map[string]any{
-		"errorMessage": taskError.Error(),
-		"taskID":       task.ID,
-	})
-
-	updatedTask = new(model.Task)
-
-	err = row.StructScan(updatedTask)
+	err := stmt.
+		QueryRowContext(ctx, map[string]any{
+			"errorMessage": taskError.Error(),
+			"taskID":       task.ID,
+		}).
+		StructScan(updatedTask)
 	if err != nil && err != sql.ErrNoRows {
 		return &model.Task{}, err
 	}
 
-	return updatedTask, nil
+	return updatedTask.toTask(), nil
 }
 
 func (d *postgresRepository) RegisterSuccess(ctx context.Context, task *model.Task) (*model.Task, error) {
@@ -247,8 +248,9 @@ func (d *postgresRepository) RegisterFailure(ctx context.Context, task *model.Ta
 	return d.registerFinish(ctx, task, model.StatusFailed)
 }
 
-func (d *postgresRepository) registerFinish(ctx context.Context, task *model.Task, finishStatus model.TaskStatus) (updatedTask *model.Task, err error) {
+func (d *postgresRepository) registerFinish(ctx context.Context, task *model.Task, finishStatus model.TaskStatus) (*model.Task, error) {
 	var (
+		updatedTask = new(postgresTask)
 		finishTime  = time.Now()
 		sqlTemplate = `UPDATE {{.tableName}} SET
 				"status" = :status,
@@ -259,50 +261,48 @@ func (d *postgresRepository) registerFinish(ctx context.Context, task *model.Tas
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
-	row := stmt.QueryRowContext(ctx, map[string]any{
-		"status":     finishStatus,
-		"finishTime": finishTime,
-		"taskID":     task.ID,
-	})
-
-	updatedTask = new(model.Task)
-
-	err = row.StructScan(updatedTask)
+	err := stmt.
+		QueryRowContext(ctx, map[string]any{
+			"status":     finishStatus,
+			"finishTime": finishTime,
+			"taskID":     task.ID,
+		}).
+		StructScan(updatedTask)
 	if err != nil && err != sql.ErrNoRows {
 		return &model.Task{}, err
 	}
 
-	return updatedTask, nil
+	return updatedTask.toTask(), nil
 }
 
-func (d *postgresRepository) SubmitTask(ctx context.Context, task *model.Task) (submittedTask *model.Task, err error) {
+func (d *postgresRepository) SubmitTask(ctx context.Context, task *model.Task) (*model.Task, error) {
 	var (
-		sqlTemplate = `INSERT INTO {{.tableName}} (id, type, args, queue, priority, status, max_receives, created_at) 
+		postgresTask = newFromTask(task)
+		sqlTemplate  = `INSERT INTO {{.tableName}} 
+				(id, type, args, queue, priority, status, max_receives, created_at) 
 			VALUES 
 				(:id, :type, :args, :queue, :priority, :status, :maxReceives, :createdAt)
 			RETURNING *;`
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
-	row := stmt.QueryRowContext(ctx, map[string]any{
-		"id":          task.ID,
-		"type":        task.Type,
-		"args":        task.Args,
-		"queue":       task.Queue,
-		"priority":    task.Priority,
-		"status":      task.Status,
-		"maxReceives": task.MaxReceives,
-		"createdAt":   task.CreatedAt,
-	})
-
-	submittedTask = new(model.Task)
-
-	err = row.StructScan(submittedTask)
+	err := stmt.
+		QueryRowContext(ctx, map[string]any{
+			"id":          postgresTask.ID,
+			"type":        postgresTask.Type,
+			"args":        postgresTask.Args,
+			"queue":       postgresTask.Queue,
+			"priority":    postgresTask.Priority,
+			"status":      postgresTask.Status,
+			"maxReceives": postgresTask.MaxReceives,
+			"createdAt":   postgresTask.CreatedAt,
+		}).
+		StructScan(postgresTask)
 	if err != nil {
 		return &model.Task{}, err
 	}
 
-	return submittedTask, nil
+	return postgresTask.toTask(), nil
 }
 
 func (d *postgresRepository) DeleteTask(ctx context.Context, task *model.Task) (err error) {
@@ -320,8 +320,9 @@ func (d *postgresRepository) DeleteTask(ctx context.Context, task *model.Task) (
 	return err
 }
 
-func (d *postgresRepository) RequeueTask(ctx context.Context, task *model.Task) (updatedTask *model.Task, err error) {
+func (d *postgresRepository) RequeueTask(ctx context.Context, task *model.Task) (*model.Task, error) {
 	var (
+		updatedTask = new(postgresTask)
 		sqlTemplate = `UPDATE {{.tableName}} SET
 				"status" = :status
 			WHERE
@@ -330,30 +331,25 @@ func (d *postgresRepository) RequeueTask(ctx context.Context, task *model.Task) 
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
-	row := stmt.QueryRowContext(ctx, map[string]any{
-		"status": model.StatusNew,
-		"taskID": task.ID,
-	})
-
-	updatedTask = new(model.Task)
-
-	err = row.StructScan(updatedTask)
+	err := stmt.
+		QueryRowContext(ctx, map[string]any{
+			"status": model.StatusNew,
+			"taskID": task.ID,
+		}).
+		StructScan(updatedTask)
 	if err != nil && err != sql.ErrNoRows {
 		return &model.Task{}, err
 	}
 
-	return updatedTask, err
+	return updatedTask.toTask(), err
 }
 
-func (d *postgresRepository) prepareWithTableName(sqlTemplate string) (namedStmt *sqlx.NamedStmt) {
-	var (
-		query = repository.InterpolateSQL(sqlTemplate, map[string]any{
-			"tableName": d.tableName(),
-		})
-		err error
-	)
+func (d *postgresRepository) prepareWithTableName(sqlTemplate string) *sqlx.NamedStmt {
+	var query = repository.InterpolateSQL(sqlTemplate, map[string]any{
+		"tableName": d.tableName(),
+	})
 
-	namedStmt, err = d.db.PrepareNamed(query)
+	namedStmt, err := d.db.PrepareNamed(query)
 	if err != nil {
 		panic(err)
 	}
@@ -384,7 +380,7 @@ func (d *postgresRepository) migrateStatus(ctx context.Context) (err error) {
 }
 
 func (d *postgresRepository) migrateTable(ctx context.Context) error {
-	var sqlTemplate = `CREATE TABLE IF NOT EXISTS {{.tableName}} (
+	const sqlTemplate = `CREATE TABLE IF NOT EXISTS {{.tableName}} (
 			"id" UUID NOT NULL PRIMARY KEY,
 			"type" TEXT NOT NULL,
 			"args" BYTEA NOT NULL,
@@ -400,7 +396,7 @@ func (d *postgresRepository) migrateTable(ctx context.Context) error {
 			"visible_at" TIMESTAMPTZ NOT NULL DEFAULT '0001-01-01 00:00:00.000000'
 		);`
 
-	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
+	var query = repository.InterpolateSQL(sqlTemplate, map[string]any{
 		"tableName":      d.tableName(),
 		"statusTypeName": d.statusTypeName(),
 	})

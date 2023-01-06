@@ -44,19 +44,19 @@ const (
 )
 
 type Task struct {
-	ID           uuid.UUID      `db:"id"`
-	Type         string         `db:"type"`
-	Args         []byte         `db:"args"`
-	Queue        string         `db:"queue"`
-	Priority     int16          `db:"priority"`
-	Status       TaskStatus     `db:"status"`
-	ReceiveCount int32          `db:"receive_count"`
-	MaxReceives  int32          `db:"max_receives"`
-	LastError    sql.NullString `db:"last_error"`
-	CreatedAt    time.Time      `db:"created_at"`
-	StartedAt    *time.Time     `db:"started_at"`
-	FinishedAt   *time.Time     `db:"finished_at"`
-	VisibleAt    time.Time      `db:"visible_at"`
+	ID           uuid.UUID
+	Type         string
+	Args         []byte
+	Queue        string
+	Priority     int16
+	Status       TaskStatus
+	ReceiveCount int32
+	MaxReceives  int32
+	LastError    sql.NullString
+	CreatedAt    time.Time
+	StartedAt    *time.Time
+	FinishedAt   *time.Time
+	VisibleAt    time.Time
 }
 
 func NewTask(taskType string, taskArgs any, queue string, priority int16, maxReceives int32) *Task {

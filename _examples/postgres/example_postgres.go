@@ -112,7 +112,8 @@ func main() {
 		WithChannelSize(10).
 		WithPollInterval(10 * time.Second).
 		WithPollStrategy(tasq.PollStrategyByPriority).
-		WithAutoDeleteOnSuccess(false)
+		WithAutoDeleteOnSuccess(false).
+		WithLogger(log.Default())
 
 	// teach the consumer to handle tasks with the type "sampleTask" with the function "processSampleTask"
 	err = consumer.Learn(taskType, processSampleTask, false)
