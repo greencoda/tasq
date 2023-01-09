@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/greencoda/tasq"
 	tasqMySQL "github.com/greencoda/tasq/pkg/repository/mysql"
 )

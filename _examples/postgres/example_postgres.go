@@ -79,6 +79,7 @@ func produceTasks(producer *tasq.Producer) {
 
 func main() {
 	ctx, cancelCtx := context.WithCancel(context.Background())
+	defer cancelCtx()
 
 	db, err := sql.Open("postgres", "host=127.0.0.1 user=test password=test dbname=test port=5432 sslmode=disable")
 	if err != nil {
@@ -159,7 +160,4 @@ func main() {
 
 	// wait until consumer go routine exits
 	consumerWg.Wait()
-
-	// cancel the context
-	cancelCtx()
 }
