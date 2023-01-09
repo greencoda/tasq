@@ -4,37 +4,38 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"log"
-
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq/internal/model"
-	"github.com/greencoda/tasq/internal/repository"
+	"github.com/greencoda/tasq/pkg/repository"
 	"github.com/jmoiron/sqlx"
 )
+
+const driverName = "mysql"
 
 type mysqlRepository struct {
 	db     *sqlx.DB
 	prefix string
 }
 
-func NewRepository(dataSource any, driver, prefix string) (repository.IRepository, error) {
+func NewRepository(dataSource any, prefix string) (repository.IRepository, error) {
 	switch d := dataSource.(type) {
 	case string:
-		return newRepositoryFromDSN(d, driver, prefix)
+		return newRepositoryFromDSN(d, prefix)
 	case *sql.DB:
-		return newRepositoryFromDB(d, driver, prefix)
+		return newRepositoryFromDB(d, prefix)
 	}
 
 	return nil, fmt.Errorf("unexpected dataSource type: %T", dataSource)
 }
 
-func newRepositoryFromDSN(dsn string, driver, prefix string) (repository.IRepository, error) {
-	dbx, err := sqlx.Open(driver, dsn)
+func newRepositoryFromDSN(dsn string, prefix string) (repository.IRepository, error) {
+	dbx, err := sqlx.Open(driverName, dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -45,8 +46,8 @@ func newRepositoryFromDSN(dsn string, driver, prefix string) (repository.IReposi
 	}, nil
 }
 
-func newRepositoryFromDB(db *sql.DB, driver, prefix string) (repository.IRepository, error) {
-	dbx := sqlx.NewDb(db, driver)
+func newRepositoryFromDB(db *sql.DB, prefix string) (repository.IRepository, error) {
+	dbx := sqlx.NewDb(db, driverName)
 
 	return &mysqlRepository{
 		db:     dbx,
@@ -68,8 +69,8 @@ func (d *mysqlRepository) tableName() string {
 	return tableName
 }
 
-func (d *mysqlRepository) Migrate(ctx context.Context) (err error) {
-	err = d.migrateTable(ctx)
+func (d *mysqlRepository) Migrate(ctx context.Context) error {
+	err := d.migrateTable(ctx)
 	if err != nil {
 		return err
 	}
@@ -104,9 +105,9 @@ func (d *mysqlRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, vi
 	defer rollback(tx)
 
 	var (
-		pingedTime                                    = time.Now()
+		pingTime                                      = time.Now()
 		updatePingedTasksQuery, updatePingedTasksArgs = d.getQueryWithTableName(updatePingedTasksSQLTemplate, map[string]any{
-			"visibleAt":     pingedTime.Add(visibilityTimeout),
+			"visibleAt":     timeToString(pingTime.Add(visibilityTimeout)),
 			"pingedTaskIDs": taskIDs,
 		})
 	)
@@ -184,7 +185,7 @@ func (d *mysqlRepository) PollTasks(ctx context.Context, types, queues []string,
 			"pollTypes":    types,
 			"pollQueues":   queues,
 			"pollStatuses": model.OpenTaskStatuses,
-			"pollTime":     pollTime,
+			"pollTime":     timeToString(pollTime),
 			"pollOrdering": ordering,
 			"pollLimit":    pollLimit,
 		})
@@ -199,9 +200,9 @@ func (d *mysqlRepository) PollTasks(ctx context.Context, types, queues []string,
 		return []*model.Task{}, nil
 	}
 
-	var updatePolledTasksQuery, updatePolledTasksArgs = d.getQueryWithTableName(updatePolledTasksSQLTemplate, map[string]any{
+	updatePolledTasksQuery, updatePolledTasksArgs := d.getQueryWithTableName(updatePolledTasksSQLTemplate, map[string]any{
 		"status":        model.StatusEnqueued,
-		"visibleAt":     pollTime.Add(visibilityTimeout),
+		"visibleAt":     timeToString(pollTime.Add(visibilityTimeout)),
 		"polledTaskIDs": polledTaskIDs,
 	})
 
@@ -231,8 +232,7 @@ func (d *mysqlRepository) PollTasks(ctx context.Context, types, queues []string,
 }
 
 func (d *mysqlRepository) CleanTasks(ctx context.Context, cleanAge time.Duration) (rowsAffected int64, err error) {
-	const cleanTasksSQLTemplate = `DELETE 
-		FROM
+	const cleanTasksSQLTemplate = `DELETE FROM
 			{{.tableName}}
 		WHERE
 			status IN (:statuses) AND
@@ -241,7 +241,7 @@ func (d *mysqlRepository) CleanTasks(ctx context.Context, cleanAge time.Duration
 		cleanTime                       = time.Now()
 		cleanTasksQuery, cleanTasksArgs = d.getQueryWithTableName(cleanTasksSQLTemplate, map[string]any{
 			"statuses": model.FinishedTaskStatuses,
-			"cleanAt":  cleanTime.Add(-cleanAge),
+			"cleanAt":  timeToString(cleanTime.Add(-cleanAge)),
 		})
 	)
 
@@ -285,7 +285,7 @@ func (d *mysqlRepository) RegisterStart(ctx context.Context, task *model.Task) (
 		startTime                       = time.Now()
 		updateTaskQuery, updateTaskArgs = d.getQueryWithTableName(updateTaskSQLTemplate, map[string]any{
 			"status":    model.StatusInProgress,
-			"startTime": startTime,
+			"startTime": timeToString(startTime),
 			"taskID":    mySQLTask.ID,
 		})
 	)
@@ -295,7 +295,7 @@ func (d *mysqlRepository) RegisterStart(ctx context.Context, task *model.Task) (
 		return &model.Task{}, err
 	}
 
-	var selectUpdatedTaskQuery, selectUpdatedTaskArgs = d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
+	selectUpdatedTaskQuery, selectUpdatedTaskArgs := d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
 		"taskID": mySQLTask.ID,
 	})
 
@@ -316,7 +316,7 @@ func (d *mysqlRepository) RegisterStart(ctx context.Context, task *model.Task) (
 	return mySQLTask.toTask(), nil
 }
 
-func (d *mysqlRepository) RegisterError(ctx context.Context, task *model.Task, taskError error) (updatedTask *model.Task, err error) {
+func (d *mysqlRepository) RegisterError(ctx context.Context, task *model.Task, errTask error) (updatedTask *model.Task, err error) {
 	const (
 		updateTaskSQLTemplate = `UPDATE 
 				{{.tableName}} 
@@ -340,7 +340,7 @@ func (d *mysqlRepository) RegisterError(ctx context.Context, task *model.Task, t
 	var (
 		mySQLTask                       = newFromTask(task)
 		updateTaskQuery, updateTaskArgs = d.getQueryWithTableName(updateTaskSQLTemplate, map[string]any{
-			"errorMessage": taskError.Error(),
+			"errorMessage": errTask.Error(),
 			"taskID":       mySQLTask.ID,
 		})
 	)
@@ -350,7 +350,7 @@ func (d *mysqlRepository) RegisterError(ctx context.Context, task *model.Task, t
 		return &model.Task{}, err
 	}
 
-	var selectUpdatedTaskQuery, selectUpdatedTaskArgs = d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
+	selectUpdatedTaskQuery, selectUpdatedTaskArgs := d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
 		"taskID": mySQLTask.ID,
 	})
 
@@ -406,7 +406,7 @@ func (d *mysqlRepository) registerFinish(ctx context.Context, task *model.Task, 
 		finishTime                        = time.Now()
 		updateTasksQuery, updateTasksArgs = d.getQueryWithTableName(updateTaskSQLTemplate, map[string]any{
 			"status":     finishStatus,
-			"finishTime": finishTime,
+			"finishTime": timeToString(finishTime),
 			"taskID":     mySQLTask.ID,
 		})
 	)
@@ -417,7 +417,7 @@ func (d *mysqlRepository) registerFinish(ctx context.Context, task *model.Task, 
 		return &model.Task{}, err
 	}
 
-	var selectUpdatedTasksQuery, selectUpdatedTasksArgs = d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
+	selectUpdatedTasksQuery, selectUpdatedTasksArgs := d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
 		"taskID": mySQLTask.ID,
 	})
 
@@ -477,7 +477,7 @@ func (d *mysqlRepository) SubmitTask(ctx context.Context, task *model.Task) (sub
 		return &model.Task{}, err
 	}
 
-	var selectInsertedTaskQuery, selectInsertedTaskArgs = d.getQueryWithTableName(selectInsertedTaskSQLTemplate, map[string]any{
+	selectInsertedTaskQuery, selectInsertedTaskArgs := d.getQueryWithTableName(selectInsertedTaskSQLTemplate, map[string]any{
 		"taskID": mySQLTask.ID,
 	})
 
@@ -551,7 +551,7 @@ func (d *mysqlRepository) RequeueTask(ctx context.Context, task *model.Task) (*m
 		return &model.Task{}, err
 	}
 
-	var selectUpdatedTaskQuery, selectUpdatedTaskArgs = d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
+	selectUpdatedTaskQuery, selectUpdatedTaskArgs := d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
 		"taskID": mySQLTask.ID,
 	})
 
@@ -573,7 +573,7 @@ func (d *mysqlRepository) RequeueTask(ctx context.Context, task *model.Task) (*m
 }
 
 func (d *mysqlRepository) getQueryWithTableName(sqlTemplate string, args ...any) (string, []any) {
-	var query = repository.InterpolateSQL(sqlTemplate, map[string]any{
+	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
 		"tableName": d.tableName(),
 	})
 
@@ -608,7 +608,7 @@ func (d *mysqlRepository) migrateTable(ctx context.Context) error {
             PRIMARY KEY (id)
 		);`
 
-	var query = repository.InterpolateSQL(sqlTemplate, map[string]any{
+	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
 		"tableName":  d.tableName(),
 		"enumValues": sliceToMySQLValueList(model.AllTaskStatuses),
 	})
@@ -622,7 +622,7 @@ func (d *mysqlRepository) migrateTable(ctx context.Context) error {
 }
 
 func sliceToMySQLValueList[T any](slice []T) string {
-	var stringSlice = make([]string, 0, len(slice))
+	stringSlice := make([]string, 0, len(slice))
 
 	for _, s := range slice {
 		stringSlice = append(stringSlice, fmt.Sprint(s))

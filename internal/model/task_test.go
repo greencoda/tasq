@@ -10,14 +10,22 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
+var errTest = errors.New("test error")
+
 type errorReader int
 
-func (errorReader) Read(p []byte) (n int, err error) {
-	return 0, errors.New("test error")
+func (errorReader) Read(p []byte) (int, error) {
+	return 0, errTest
 }
 
 type TaskTestSuite struct {
 	suite.Suite
+}
+
+func TestTaskTestSuite(t *testing.T) {
+	t.Parallel()
+
+	suite.Run(t, new(TaskTestSuite))
 }
 
 func (s *TaskTestSuite) SetupTest() {
@@ -35,6 +43,7 @@ func (s *TaskTestSuite) TestNewTask() {
 
 	// Fail by causing uuid generation to return error
 	uuid.SetRand(new(errorReader))
+
 	invalidUUIDTask := model.NewTask("testTask", false, "testQueue", 0, 5)
 	assert.Nil(s.T(), invalidUUIDTask)
 }
@@ -65,8 +74,4 @@ func (s *TaskTestSuite) TestTaskUnmarshalArgs() {
 	err = task.UnmarshalArgs(&incorrectTypeArgs)
 	assert.NotNil(s.T(), err)
 	assert.Empty(s.T(), incorrectTypeArgs)
-}
-
-func TestTaskTestSuite(t *testing.T) {
-	suite.Run(t, new(TaskTestSuite))
 }

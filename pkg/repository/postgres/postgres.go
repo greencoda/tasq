@@ -9,32 +9,31 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq/internal/model"
-	"github.com/greencoda/tasq/internal/repository"
+	"github.com/greencoda/tasq/pkg/repository"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 )
+
+const driverName = "postgres"
 
 type postgresRepository struct {
 	db     *sqlx.DB
 	prefix string
 }
 
-func NewRepository(dataSource any, driver, prefix string) (repository.IRepository, error) {
+func NewRepository(dataSource any, prefix string) (repository.IRepository, error) {
 	switch d := dataSource.(type) {
 	case string:
-		return newRepositoryFromDSN(d, driver, prefix)
+		return newRepositoryFromDSN(d, prefix)
 	case *sql.DB:
-		return newRepositoryFromDB(d, driver, prefix)
+		return newRepositoryFromDB(d, prefix)
 	}
 
 	return nil, fmt.Errorf("unexpected dataSource type: %T", dataSource)
 }
 
-func newRepositoryFromDSN(dsn string, driver, prefix string) (repository.IRepository, error) {
-	dbx, err := sqlx.Open(driver, dsn)
-	if err != nil {
-		return nil, err
-	}
+func newRepositoryFromDSN(dsn string, prefix string) (repository.IRepository, error) {
+	dbx, _ := sqlx.Open(driverName, dsn)
 
 	return &postgresRepository{
 		db:     dbx,
@@ -42,8 +41,8 @@ func newRepositoryFromDSN(dsn string, driver, prefix string) (repository.IReposi
 	}, nil
 }
 
-func newRepositoryFromDB(db *sql.DB, driver, prefix string) (repository.IRepository, error) {
-	dbx := sqlx.NewDb(db, driver)
+func newRepositoryFromDB(db *sql.DB, prefix string) (repository.IRepository, error) {
+	dbx := sqlx.NewDb(db, driverName)
 
 	return &postgresRepository{
 		db:     dbx,
@@ -66,7 +65,7 @@ func (d *postgresRepository) tableName() string {
 }
 
 func (d *postgresRepository) statusTypeName() string {
-	var typeNameSegments = []string{"task_status"}
+	typeNameSegments := []string{"task_status"}
 	if len(d.prefix) > 0 {
 		typeNameSegments = append([]string{d.prefix}, typeNameSegments...)
 	}
@@ -74,8 +73,8 @@ func (d *postgresRepository) statusTypeName() string {
 	return strings.Join(typeNameSegments, "_")
 }
 
-func (d *postgresRepository) Migrate(ctx context.Context) (err error) {
-	err = d.migrateStatus(ctx)
+func (d *postgresRepository) Migrate(ctx context.Context) error {
+	err := d.migrateStatus(ctx)
 	if err != nil {
 		return err
 	}
@@ -95,7 +94,7 @@ func (d *postgresRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID,
 
 	var (
 		pingedTasks []*postgresTask
-		pingedTime  = time.Now()
+		pingTime    = time.Now()
 		sqlTemplate = `UPDATE
 				{{.tableName}}
 			SET
@@ -107,7 +106,7 @@ func (d *postgresRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID,
 	)
 
 	err := stmt.SelectContext(ctx, &pingedTasks, map[string]any{
-		"visible_at": pingedTime.Add(visibilityTimeout),
+		"visible_at": pingTime.Add(visibilityTimeout),
 		"pinged_ids": pq.Array(taskIDs),
 	})
 	if err != nil && err != sql.ErrNoRows {
@@ -216,7 +215,7 @@ func (d *postgresRepository) RegisterStart(ctx context.Context, task *model.Task
 	return updatedTask.toTask(), nil
 }
 
-func (d *postgresRepository) RegisterError(ctx context.Context, task *model.Task, taskError error) (*model.Task, error) {
+func (d *postgresRepository) RegisterError(ctx context.Context, task *model.Task, errTask error) (*model.Task, error) {
 	var (
 		updatedTask = new(postgresTask)
 		sqlTemplate = `UPDATE {{.tableName}} SET
@@ -229,7 +228,7 @@ func (d *postgresRepository) RegisterError(ctx context.Context, task *model.Task
 
 	err := stmt.
 		QueryRowContext(ctx, map[string]any{
-			"errorMessage": taskError.Error(),
+			"errorMessage": errTask.Error(),
 			"taskID":       task.ID,
 		}).
 		StructScan(updatedTask)
@@ -345,7 +344,7 @@ func (d *postgresRepository) RequeueTask(ctx context.Context, task *model.Task) 
 }
 
 func (d *postgresRepository) prepareWithTableName(sqlTemplate string) *sqlx.NamedStmt {
-	var query = repository.InterpolateSQL(sqlTemplate, map[string]any{
+	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
 		"tableName": d.tableName(),
 	})
 
@@ -396,7 +395,7 @@ func (d *postgresRepository) migrateTable(ctx context.Context) error {
 			"visible_at" TIMESTAMPTZ NOT NULL DEFAULT '0001-01-01 00:00:00.000000'
 		);`
 
-	var query = repository.InterpolateSQL(sqlTemplate, map[string]any{
+	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
 		"tableName":      d.tableName(),
 		"statusTypeName": d.statusTypeName(),
 	})
@@ -410,7 +409,7 @@ func (d *postgresRepository) migrateTable(ctx context.Context) error {
 }
 
 func sliceToPostgreSQLValueList[T any](slice []T) string {
-	var stringSlice = make([]string, 0, len(slice))
+	stringSlice := make([]string, 0, len(slice))
 
 	for _, s := range slice {
 		stringSlice = append(stringSlice, fmt.Sprint(s))

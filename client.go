@@ -3,7 +3,7 @@ package tasq
 import (
 	"context"
 
-	"github.com/greencoda/tasq/internal/repository"
+	"github.com/greencoda/tasq/pkg/repository"
 )
 
 // Client wraps the tasq repository interface which is used

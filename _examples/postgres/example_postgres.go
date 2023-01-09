@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/greencoda/tasq"
+	tasqPostgres "github.com/greencoda/tasq/pkg/repository/postgres"
 )
 
 const (
@@ -87,10 +88,20 @@ func main() {
 	// instantiate tasq repository to manage the database connection
 	// you can also have it set up the sql DB for you if you provide the dsn string
 	// instead of the *sql.DB instance
-	tasqRepository, err := tasq.NewRepository(db, "postgres", "tasq", true, 5*time.Second)
+	tasqRepository, err := tasqPostgres.NewRepository(db, "tasq")
 	if err != nil {
 		log.Fatalf("failed to create tasq repository: %s", err)
 	}
+
+	migrationCtx, migrationCancelCtx := context.WithTimeout(context.Background(), 10*time.Second)
+	defer migrationCancelCtx()
+
+	err = tasqRepository.Migrate(migrationCtx)
+	if err != nil {
+		log.Fatalf("failed to migrate tasq repository: %s", err)
+	}
+
+	log.Print("database migrated successfully")
 
 	// instantiate tasq client
 	tasqClient := tasq.NewClient(ctx, tasqRepository)

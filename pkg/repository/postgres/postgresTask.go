@@ -61,7 +61,7 @@ func (t *postgresTask) toTask() *model.Task {
 }
 
 func postgresTasksToTasks(postgresTasks []*postgresTask) []*model.Task {
-	var tasks = make([]*model.Task, len(postgresTasks))
+	tasks := make([]*model.Task, len(postgresTasks))
 
 	for i, postgresTask := range postgresTasks {
 		tasks[i] = postgresTask.toTask()

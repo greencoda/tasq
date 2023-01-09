@@ -26,7 +26,7 @@ type IRepository interface {
 	CleanTasks(ctx context.Context, minimumAge time.Duration) (int64, error)
 
 	RegisterStart(ctx context.Context, task *model.Task) (*model.Task, error)
-	RegisterError(ctx context.Context, task *model.Task, taskError error) (*model.Task, error)
+	RegisterError(ctx context.Context, task *model.Task, errTask error) (*model.Task, error)
 
 	RegisterSuccess(ctx context.Context, task *model.Task) (*model.Task, error)
 	RegisterFailure(ctx context.Context, task *model.Task) (*model.Task, error)

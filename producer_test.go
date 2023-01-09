@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	mock_repository "github.com/greencoda/tasq/internal/mocks/repository"
 	"github.com/greencoda/tasq/internal/model"
+	mock_repository "github.com/greencoda/tasq/pkg/mocks/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -50,11 +50,12 @@ func (s *ProducterTestSuite) TestSubmitSuccessful() {
 
 func (s *ProducterTestSuite) TestSubmitUnsuccessful() {
 	var (
-		testArgs = "testData"
-		testTask = model.NewTask("testTask", testArgs, "testQueue", 100, 5)
+		testArgs      = "testData"
+		testTask      = model.NewTask("testTask", testArgs, "testQueue", 100, 5)
+		errRepository = errors.New("repository error")
 	)
 
-	s.mockRepository.On("SubmitTask", s.tasqClient.getContext(), mock.AnythingOfType("*model.Task")).Return(nil, errors.New("some repository error"))
+	s.mockRepository.On("SubmitTask", s.tasqClient.getContext(), mock.AnythingOfType("*model.Task")).Return(nil, errRepository)
 
 	task, err := s.tasqProducer.Submit(testTask.Type, testArgs, testTask.Queue, testTask.Priority, testTask.MaxReceives)
 

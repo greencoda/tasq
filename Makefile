@@ -8,9 +8,12 @@ deps:
 	go mod tidy
 	go mod vendor
 
+lint: deps
+	GOARCH=amd64 GO111MODULE=on golangci-lint run -v --enable-all -D gochecknoglobals -D lll -D goimports
+
 mocks:
-	rm -rf internal/mocks/*
-	mockery --all --dir=internal --output=internal/mocks --keeptree
+	rm -rf pkg/mocks/*
+	mockery --all --dir=pkg --output=pkg/mocks --keeptree
 
 test:
 	go test ${TESTABLE_PACKAGES} -count=1 -cover 

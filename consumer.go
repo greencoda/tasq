@@ -11,7 +11,7 @@ import (
 	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq/internal/model"
-	"github.com/greencoda/tasq/internal/repository"
+	"github.com/greencoda/tasq/pkg/repository"
 )
 
 // Logger is the interface used for event logging during task consumption

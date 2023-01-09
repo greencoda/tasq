@@ -11,9 +11,9 @@ import (
 
 	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
-	mock_repository "github.com/greencoda/tasq/internal/mocks/repository"
 	"github.com/greencoda/tasq/internal/model"
-	"github.com/greencoda/tasq/internal/repository"
+	mock_repository "github.com/greencoda/tasq/pkg/mocks/repository"
+	"github.com/greencoda/tasq/pkg/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -157,8 +157,8 @@ func (s *ConsumerTestSuite) TestConsumption() {
 		failTestTask          = model.NewTask("testTask", failTestArgs, "testQueue", 100, 5)
 		failNoRequeueTestTask = model.NewTask("testTask", failTestArgs, "testQueue", 100, 1)
 
-		failTaskError   = errors.New("task failed")
-		repositoryError = errors.New("repository error")
+		errTaskFail   = errors.New("task failed")
+		errRepository = errors.New("repository error")
 	)
 
 	err := s.tasqConsumer.Learn("testTask", func(task Task) error {
@@ -170,7 +170,7 @@ func (s *ConsumerTestSuite) TestConsumption() {
 		if args == successTestArgs {
 			return nil
 		} else {
-			return failTaskError
+			return errTaskFail
 		}
 	}, false)
 	require.Nil(s.T(), err)
@@ -187,7 +187,7 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	// Getting tasks
 
 	// First try - pinging fails
-	s.mockRepository.On("PingTasks", s.tasqClient.getContext(), []uuid.UUID{}, 15*time.Second).Once().Return([]*model.Task{}, repositoryError)
+	s.mockRepository.On("PingTasks", s.tasqClient.getContext(), []uuid.UUID{}, 15*time.Second).Once().Return([]*model.Task{}, errRepository)
 
 	// First try - pinging succeeds
 	s.mockRepository.On("PingTasks", s.tasqClient.getContext(), []uuid.UUID{}, 15*time.Second).Once().Return([]*model.Task{}, nil)
@@ -206,14 +206,14 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	assert.NotNil(s.T(), successJob)
 
 	// First try - registering task start fails
-	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), successTestTask).Once().Return(nil, repositoryError)
+	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), successTestTask).Once().Return(nil, errRepository)
 	assert.Panics(s.T(), func() {
 		(*successJob)()
 	})
 
 	// Second try - registering task success fails
 	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), successTestTask).Once().Return(successTestTask, nil)
-	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), successTestTask).Once().Return(nil, repositoryError)
+	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), successTestTask).Once().Return(nil, errRepository)
 	assert.Panics(s.T(), func() {
 		(*successJob)()
 	})
@@ -231,22 +231,22 @@ func (s *ConsumerTestSuite) TestConsumption() {
 
 	// First try - registering task error fails
 	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), failTestTask).Once().Return(failTestTask, nil)
-	s.mockRepository.On("RegisterError", s.tasqClient.getContext(), failTestTask, failTaskError).Once().Return(nil, repositoryError)
+	s.mockRepository.On("RegisterError", s.tasqClient.getContext(), failTestTask, errTaskFail).Once().Return(nil, errRepository)
 	assert.Panics(s.T(), func() {
 		(*failJob)()
 	})
 
 	// Second try - requeuing task fails
 	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), failTestTask).Once().Return(failTestTask, nil)
-	s.mockRepository.On("RegisterError", s.tasqClient.getContext(), failTestTask, failTaskError).Once().Return(failTestTask, nil)
-	s.mockRepository.On("RequeueTask", s.tasqClient.getContext(), failTestTask).Once().Return(nil, repositoryError)
+	s.mockRepository.On("RegisterError", s.tasqClient.getContext(), failTestTask, errTaskFail).Once().Return(failTestTask, nil)
+	s.mockRepository.On("RequeueTask", s.tasqClient.getContext(), failTestTask).Once().Return(nil, errRepository)
 	assert.Panics(s.T(), func() {
 		(*failJob)()
 	})
 
 	// Third try - repository succeeds
 	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), failTestTask).Once().Return(failTestTask, nil)
-	s.mockRepository.On("RegisterError", s.tasqClient.getContext(), failTestTask, failTaskError).Once().Return(failTestTask, nil)
+	s.mockRepository.On("RegisterError", s.tasqClient.getContext(), failTestTask, errTaskFail).Once().Return(failTestTask, nil)
 	s.mockRepository.On("RequeueTask", s.tasqClient.getContext(), failTestTask).Once().Return(failTestTask, nil)
 	assert.NotPanics(s.T(), func() {
 		(*failJob)()
@@ -258,22 +258,22 @@ func (s *ConsumerTestSuite) TestConsumption() {
 
 	// First try - registering task failure fails
 	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), failNoRequeueTestTask).Once().Return(failNoRequeueTestTask, nil)
-	s.mockRepository.On("RegisterError", s.tasqClient.getContext(), failNoRequeueTestTask, failTaskError).Once().Return(nil, repositoryError)
+	s.mockRepository.On("RegisterError", s.tasqClient.getContext(), failNoRequeueTestTask, errTaskFail).Once().Return(nil, errRepository)
 	assert.Panics(s.T(), func() {
 		(*failNoRequeueJob)()
 	})
 
 	// Second try - registering task failure fails
 	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), failNoRequeueTestTask).Once().Return(failNoRequeueTestTask, nil)
-	s.mockRepository.On("RegisterError", s.tasqClient.getContext(), failNoRequeueTestTask, failTaskError).Once().Return(failNoRequeueTestTask, nil)
-	s.mockRepository.On("RegisterFailure", s.tasqClient.getContext(), failNoRequeueTestTask).Once().Return(nil, repositoryError)
+	s.mockRepository.On("RegisterError", s.tasqClient.getContext(), failNoRequeueTestTask, errTaskFail).Once().Return(failNoRequeueTestTask, nil)
+	s.mockRepository.On("RegisterFailure", s.tasqClient.getContext(), failNoRequeueTestTask).Once().Return(nil, errRepository)
 	assert.Panics(s.T(), func() {
 		(*failNoRequeueJob)()
 	})
 
 	// Third try - repository succeeds
 	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), failNoRequeueTestTask).Once().Return(failNoRequeueTestTask, nil)
-	s.mockRepository.On("RegisterError", s.tasqClient.getContext(), failNoRequeueTestTask, failTaskError).Once().Return(failNoRequeueTestTask, nil)
+	s.mockRepository.On("RegisterError", s.tasqClient.getContext(), failNoRequeueTestTask, errTaskFail).Once().Return(failNoRequeueTestTask, nil)
 	s.mockRepository.On("RegisterFailure", s.tasqClient.getContext(), failNoRequeueTestTask).Once().Return(failNoRequeueTestTask, nil)
 	assert.NotPanics(s.T(), func() {
 		(*failNoRequeueJob)()
@@ -301,7 +301,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 
 	var (
 		successTestTask = model.NewTask("testTask", true, "testQueue", 100, 5)
-		repositoryError = errors.New("repository error")
+		errRepository   = errors.New("repository error")
 	)
 
 	err := s.tasqConsumer.Learn("testTask", func(task Task) error {
@@ -327,7 +327,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 
 	// First try - deleting task fails
 	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), successTestTask).Once().Return(successTestTask, nil)
-	s.mockRepository.On("DeleteTask", s.tasqClient.getContext(), successTestTask).Once().Return(repositoryError)
+	s.mockRepository.On("DeleteTask", s.tasqClient.getContext(), successTestTask).Once().Return(errRepository)
 	assert.Panics(s.T(), func() {
 		(*successJob)()
 	})
@@ -359,7 +359,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 		WithQueues("testQueue").
 		WithPollStrategy(PollStrategyByPriority)
 
-	var successTestTask = model.NewTask("testTask", true, "testQueue", 100, 5)
+	successTestTask := model.NewTask("testTask", true, "testQueue", 100, 5)
 
 	err := s.tasqConsumer.Learn("testTask", func(task Task) error {
 		return nil
@@ -435,7 +435,7 @@ func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 	s.tasqConsumer.
 		WithQueues("testQueue")
 
-	var anotherTestTask = model.NewTask("anotherTestTask", true, "testQueue", 100, 5)
+	anotherTestTask := model.NewTask("anotherTestTask", true, "testQueue", 100, 5)
 
 	err := s.tasqConsumer.Learn("testTask", func(task Task) error {
 		return nil

@@ -131,13 +131,13 @@ func (_m *IRepository) PollTasks(ctx context.Context, types []string, queues []s
 	return r0, r1
 }
 
-// RegisterError provides a mock function with given fields: ctx, task, taskError
-func (_m *IRepository) RegisterError(ctx context.Context, task *model.Task, taskError error) (*model.Task, error) {
-	ret := _m.Called(ctx, task, taskError)
+// RegisterError provides a mock function with given fields: ctx, task, errTask
+func (_m *IRepository) RegisterError(ctx context.Context, task *model.Task, errTask error) (*model.Task, error) {
+	ret := _m.Called(ctx, task, errTask)
 
 	var r0 *model.Task
 	if rf, ok := ret.Get(0).(func(context.Context, *model.Task, error) *model.Task); ok {
-		r0 = rf(ctx, task, taskError)
+		r0 = rf(ctx, task, errTask)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*model.Task)
@@ -146,7 +146,7 @@ func (_m *IRepository) RegisterError(ctx context.Context, task *model.Task, task
 
 	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, *model.Task, error) error); ok {
-		r1 = rf(ctx, task, taskError)
+		r1 = rf(ctx, task, errTask)
 	} else {
 		r1 = ret.Error(1)
 	}

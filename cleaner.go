@@ -4,9 +4,7 @@ import (
 	"time"
 )
 
-var (
-	defaultTaskAgeLimit = 15 * time.Minute
-)
+var defaultTaskAgeLimit = 15 * time.Minute
 
 // Cleaner is a service instance created by a Client with reference to that client
 // and the task age limit parameter

@@ -11,6 +11,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/greencoda/tasq"
+	tasqMySQL "github.com/greencoda/tasq/pkg/repository/mysql"
 )
 
 const (
@@ -79,6 +80,7 @@ func produceTasks(producer *tasq.Producer) {
 
 func main() {
 	ctx, cancelCtx := context.WithCancel(context.Background())
+	defer cancelCtx()
 
 	db, err := sql.Open("mysql", "root:root@/test")
 	if err != nil {
@@ -88,10 +90,20 @@ func main() {
 	// instantiate tasq repository to manage the database connection
 	// you can also have it set up the sql DB for you if you provide the dsn string
 	// instead of the *sql.DB instance
-	tasqRepository, err := tasq.NewRepository(db, "mysql", "tasq", true, 5*time.Second)
+	tasqRepository, err := tasqMySQL.NewRepository(db, "tasq")
 	if err != nil {
 		log.Fatalf("failed to create tasq repository: %s", err)
 	}
+
+	migrationCtx, migrationCancelCtx := context.WithTimeout(context.Background(), 10*time.Second)
+	defer migrationCancelCtx()
+
+	err = tasqRepository.Migrate(migrationCtx)
+	if err != nil {
+		log.Fatalf("failed to migrate tasq repository: %s", err)
+	}
+
+	log.Print("database migrated successfully")
 
 	// instantiate tasq client
 	tasqClient := tasq.NewClient(ctx, tasqRepository)
@@ -149,7 +161,4 @@ func main() {
 
 	// wait until consumer go routine exits
 	consumerWg.Wait()
-
-	// cancel the context
-	cancelCtx()
 }
