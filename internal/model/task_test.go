@@ -34,33 +34,35 @@ func (s *TaskTestSuite) SetupTest() {
 
 func (s *TaskTestSuite) TestNewTask() {
 	// Create task successfully
-	task := model.NewTask("testTask", true, "testQueue", 0, 5)
+	task, _ := model.NewTask("testTask", true, "testQueue", 0, 5)
 	assert.NotNil(s.T(), task)
 
 	// Fail by creating task with nil args
-	nilTask := model.NewTask("testTask", nil, "testQueue", 0, 5)
+	nilTask, err := model.NewTask("testTask", nil, "testQueue", 0, 5)
 	assert.Nil(s.T(), nilTask)
+	assert.NotNil(s.T(), err)
 
 	// Fail by causing uuid generation to return error
 	uuid.SetRand(new(errorReader))
 
-	invalidUUIDTask := model.NewTask("testTask", false, "testQueue", 0, 5)
+	invalidUUIDTask, err := model.NewTask("testTask", false, "testQueue", 0, 5)
 	assert.Nil(s.T(), invalidUUIDTask)
+	assert.NotNil(s.T(), err)
 }
 
 func (s *TaskTestSuite) TestTaskGetDetails() {
 	// Create task successfully
-	task := model.NewTask("testTask", true, "testQueue", 0, 5)
+	task, _ := model.NewTask("testTask", true, "testQueue", 0, 5)
 	assert.NotNil(s.T(), task)
 
 	// Get task details
 	taskModel := task.GetDetails()
-	assert.IsType(s.T(), &model.Task{}, taskModel)
+	assert.IsType(s.T(), task, taskModel)
 }
 
 func (s *TaskTestSuite) TestTaskUnmarshalArgs() {
 	// Create task successfully
-	task := model.NewTask("testTask", true, "testQueue", 0, 5)
+	task, _ := model.NewTask("testTask", true, "testQueue", 0, 5)
 	assert.NotNil(s.T(), task)
 
 	// Unmarshal task args successfully

@@ -9,7 +9,7 @@ deps:
 	go mod vendor
 
 lint: deps
-	GOARCH=amd64 GO111MODULE=on golangci-lint run -v --enable-all -D gochecknoglobals -D lll -D goimports
+	golangci-lint run -v
 
 mocks:
 	rm -rf pkg/mocks/*

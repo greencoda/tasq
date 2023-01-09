@@ -2,11 +2,10 @@ package tasq
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/greencoda/tasq/internal/model"
-	mock_repository "github.com/greencoda/tasq/pkg/mocks/repository"
+	mockrepository "github.com/greencoda/tasq/pkg/mocks/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -15,13 +14,19 @@ import (
 
 type ProducterTestSuite struct {
 	suite.Suite
-	mockRepository *mock_repository.IRepository
+	mockRepository *mockrepository.IRepository
 	tasqClient     *Client
 	tasqProducer   *Producer
 }
 
+func TestProducterTestSuite(t *testing.T) {
+	t.Parallel()
+
+	suite.Run(t, new(ProducterTestSuite))
+}
+
 func (s *ProducterTestSuite) SetupTest() {
-	s.mockRepository = mock_repository.NewIRepository(s.T())
+	s.mockRepository = mockrepository.NewIRepository(s.T())
 
 	s.tasqClient = NewClient(context.Background(), s.mockRepository)
 	require.NotNil(s.T(), s.tasqClient)
@@ -35,8 +40,8 @@ func (s *ProducterTestSuite) TestNewProducer() {
 
 func (s *ProducterTestSuite) TestSubmitSuccessful() {
 	var (
-		testArgs = "testData"
-		testTask = model.NewTask("testTask", testArgs, "testQueue", 100, 5)
+		testArgs    = "testData"
+		testTask, _ = model.NewTask("testTask", testArgs, "testQueue", 100, 5)
 	)
 
 	s.mockRepository.On("SubmitTask", s.tasqClient.getContext(), mock.AnythingOfType("*model.Task")).Return(testTask, nil)
@@ -50,9 +55,8 @@ func (s *ProducterTestSuite) TestSubmitSuccessful() {
 
 func (s *ProducterTestSuite) TestSubmitUnsuccessful() {
 	var (
-		testArgs      = "testData"
-		testTask      = model.NewTask("testTask", testArgs, "testQueue", 100, 5)
-		errRepository = errors.New("repository error")
+		testArgs    = "testData"
+		testTask, _ = model.NewTask("testTask", testArgs, "testQueue", 100, 5)
 	)
 
 	s.mockRepository.On("SubmitTask", s.tasqClient.getContext(), mock.AnythingOfType("*model.Task")).Return(nil, errRepository)
@@ -69,8 +73,4 @@ func (s *ProducterTestSuite) TestSubmitInvalidpriority() {
 
 	assert.Nil(s.T(), task)
 	assert.NotNil(s.T(), err)
-}
-
-func TestProducterTestSuite(t *testing.T) {
-	suite.Run(t, new(ProducterTestSuite))
 }

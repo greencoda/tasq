@@ -12,7 +12,7 @@ import (
 	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq/internal/model"
-	mock_repository "github.com/greencoda/tasq/pkg/mocks/repository"
+	mockrepository "github.com/greencoda/tasq/pkg/mocks/repository"
 	"github.com/greencoda/tasq/pkg/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -20,8 +20,14 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
+var (
+	errTaskFail   = errors.New("task failed")
+	errRepository = errors.New("repository error")
+)
+
 func (c *Consumer) setClock(clock clock.Clock) *Consumer {
 	c.clock = clock
+
 	return c
 }
 
@@ -31,15 +37,21 @@ func (c *Consumer) getWaitGroup() *sync.WaitGroup {
 
 type ConsumerTestSuite struct {
 	suite.Suite
-	mockRepository *mock_repository.IRepository
+	mockRepository *mockrepository.IRepository
 	mockClock      *clock.Mock
 	tasqClient     *Client
 	tasqConsumer   *Consumer
 	logBuffer      bytes.Buffer
 }
 
+func TestConsumerTestSuite(t *testing.T) {
+	t.Parallel()
+
+	suite.Run(t, new(ConsumerTestSuite))
+}
+
 func (s *ConsumerTestSuite) SetupTest() {
-	s.mockRepository = mock_repository.NewIRepository(s.T())
+	s.mockRepository = mockrepository.NewIRepository(s.T())
 	s.mockClock = clock.NewMock()
 	s.mockClock.Set(time.Now())
 
@@ -49,7 +61,7 @@ func (s *ConsumerTestSuite) SetupTest() {
 	s.tasqConsumer = s.tasqClient.NewConsumer().WithLogger(log.New(&s.logBuffer, "", 0)).setClock(s.mockClock)
 	require.NotNil(s.T(), s.tasqConsumer)
 
-	s.logBuffer.Truncate(0)
+	s.logBuffer.Reset()
 }
 
 func (s *ConsumerTestSuite) TestNewConsumer() {
@@ -153,12 +165,9 @@ func (s *ConsumerTestSuite) TestConsumption() {
 		successTestArgs = "success"
 		failTestArgs    = "fail"
 
-		successTestTask       = model.NewTask("testTask", successTestArgs, "testQueue", 100, 5)
-		failTestTask          = model.NewTask("testTask", failTestArgs, "testQueue", 100, 5)
-		failNoRequeueTestTask = model.NewTask("testTask", failTestArgs, "testQueue", 100, 1)
-
-		errTaskFail   = errors.New("task failed")
-		errRepository = errors.New("repository error")
+		successTestTask, _       = model.NewTask("testTask", successTestArgs, "testQueue", 100, 5)
+		failTestTask, _          = model.NewTask("testTask", failTestArgs, "testQueue", 100, 5)
+		failNoRequeueTestTask, _ = model.NewTask("testTask", failTestArgs, "testQueue", 100, 1)
 	)
 
 	err := s.tasqConsumer.Learn("testTask", func(task Task) error {
@@ -169,9 +178,9 @@ func (s *ConsumerTestSuite) TestConsumption() {
 
 		if args == successTestArgs {
 			return nil
-		} else {
-			return errTaskFail
 		}
+
+		return errTaskFail
 	}, false)
 	require.Nil(s.T(), err)
 
@@ -299,10 +308,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 		WithQueues("testQueue").
 		WithAutoDeleteOnSuccess(true)
 
-	var (
-		successTestTask = model.NewTask("testTask", true, "testQueue", 100, 5)
-		errRepository   = errors.New("repository error")
-	)
+	successTestTask, _ := model.NewTask("testTask", true, "testQueue", 100, 5)
 
 	err := s.tasqConsumer.Learn("testTask", func(task Task) error {
 		return nil
@@ -359,7 +365,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 		WithQueues("testQueue").
 		WithPollStrategy(PollStrategyByPriority)
 
-	successTestTask := model.NewTask("testTask", true, "testQueue", 100, 5)
+	successTestTask, _ := model.NewTask("testTask", true, "testQueue", 100, 5)
 
 	err := s.tasqConsumer.Learn("testTask", func(task Task) error {
 		return nil
@@ -428,14 +434,14 @@ func (s *ConsumerTestSuite) TestConsumptionWithUnknownPollStrategy() {
 	// Wait for goroutine to actually return and output log message
 	s.tasqConsumer.getWaitGroup().Wait()
 
-	assert.Equal(s.T(), "error polling for tasks: unknown poll strategy 'pollByMagic'\nprocessing stopped\n", s.logBuffer.String())
+	assert.Equal(s.T(), "error polling for tasks: unknown poll strategy: pollByMagic\nprocessing stopped\n", s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 	s.tasqConsumer.
 		WithQueues("testQueue")
 
-	anotherTestTask := model.NewTask("anotherTestTask", true, "testQueue", 100, 5)
+	anotherTestTask, _ := model.NewTask("anotherTestTask", true, "testQueue", 100, 5)
 
 	err := s.tasqConsumer.Learn("testTask", func(task Task) error {
 		return nil
@@ -466,7 +472,7 @@ func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 	// Wait for goroutine to actually return and output log message
 	s.tasqConsumer.getWaitGroup().Wait()
 
-	assert.Equal(s.T(), "error activating tasks: 1 tasks could not be activated\nprocessing stopped\n", s.logBuffer.String())
+	assert.Equal(s.T(), "error activating tasks: a number of tasks could not be activated: 1\nprocessing stopped\n", s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestLoopingConsumption() {
@@ -477,12 +483,12 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 		WithMaxActiveTasks(2)
 
 	var (
-		testTaskID_1 = uuid.MustParse("1ada263f-61d5-44ac-b99d-2d5ad4f249de")
-		testTaskID_2 = uuid.MustParse("28032675-bc13-4dcd-8ec6-6aa430fc466a")
+		testTaskID1 = uuid.MustParse("1ada263f-61d5-44ac-b99d-2d5ad4f249de")
+		testTaskID2 = uuid.MustParse("28032675-bc13-4dcd-8ec6-6aa430fc466a")
 
 		testTasks = map[uuid.UUID]*model.Task{
-			testTaskID_1: {
-				ID:           testTaskID_1,
+			testTaskID1: {
+				ID:           testTaskID1,
 				Type:         "testTask",
 				Args:         []uint8{0x3, 0x2, 0x0, 0x1},
 				Queue:        "testQueue",
@@ -493,8 +499,8 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 				CreatedAt:    s.mockClock.Now(),
 				VisibleAt:    s.mockClock.Now(),
 			},
-			testTaskID_2: {
-				ID:           testTaskID_2,
+			testTaskID2: {
+				ID:           testTaskID2,
 				Type:         "testTask",
 				Args:         []uint8{0x3, 0x2, 0x0, 0x1},
 				Queue:        "testQueue",
@@ -519,8 +525,12 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 		inputTestIDs, ok := args[1].([]uuid.UUID)
 		require.True(s.T(), ok)
 
+		taskIDs, ok := args[1].([]uuid.UUID)
+		require.True(s.T(), ok)
+
 		returnTasks := make([]*model.Task, 0, len(inputTestIDs))
-		for _, taskID := range args[1].([]uuid.UUID) {
+
+		for _, taskID := range taskIDs {
 			returnTask, ok := testTasks[taskID]
 			require.True(s.T(), ok)
 
@@ -534,13 +544,13 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 	// First call
 	s.mockRepository.On("PollTasks", s.tasqClient.getContext(), []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1).Once().
 		Return([]*model.Task{
-			testTasks[testTaskID_1],
+			testTasks[testTaskID1],
 		}, nil)
 
 	// Second call
 	s.mockRepository.On("PollTasks", s.tasqClient.getContext(), []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1).Once().
 		Return([]*model.Task{
-			testTasks[testTaskID_2],
+			testTasks[testTaskID2],
 		}, nil)
 
 	// Start up the consumer
@@ -554,20 +564,22 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 	assert.Nil(s.T(), err)
 
 	// Mock job handling
-	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), testTasks[testTaskID_1]).Once().
-		Return(testTasks[testTaskID_1], nil)
-	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), testTasks[testTaskID_1]).Once().
-		Return(testTasks[testTaskID_1], nil)
+	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), testTasks[testTaskID1]).Once().
+		Return(testTasks[testTaskID1], nil)
+	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), testTasks[testTaskID1]).Once().
+		Return(testTasks[testTaskID1], nil)
 
-	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), testTasks[testTaskID_2]).Once().
-		Return(testTasks[testTaskID_2], nil)
-	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), testTasks[testTaskID_2]).Once().
-		Return(testTasks[testTaskID_2], nil)
+	s.mockRepository.On("RegisterStart", s.tasqClient.getContext(), testTasks[testTaskID2]).Once().
+		Return(testTasks[testTaskID2], nil)
+	s.mockRepository.On("RegisterSuccess", s.tasqClient.getContext(), testTasks[testTaskID2]).Once().
+		Return(testTasks[testTaskID2], nil)
 
 	// Drain channel of jobs
 	for job := range s.tasqConsumer.Channel() {
+		currentJob := job
+
 		assert.NotPanics(s.T(), func() {
-			(*job)()
+			(*currentJob)()
 		})
 	}
 
@@ -578,8 +590,4 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 	s.tasqConsumer.getWaitGroup().Wait()
 
 	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
-}
-
-func TestConsumerTestSuite(t *testing.T) {
-	suite.Run(t, new(ConsumerTestSuite))
 }

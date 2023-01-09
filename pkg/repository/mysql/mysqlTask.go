@@ -3,6 +3,7 @@ package mysql
 import (
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,11 +11,19 @@ import (
 	"github.com/greencoda/tasq/internal/model"
 )
 
-const timeFormat = "2006-01-02 15:04:05.999999"
+const (
+	idLength   = 16
+	timeFormat = "2006-01-02 15:04:05.999999"
+)
 
-type MySQLTaskID [16]byte
+var (
+	errIncorrectLength = errors.New("Scan: MySQLTaskID is of incorrect length")
+	errUnableToScan    = errors.New("Scan: unable to scan type into MySQLTaskID")
+)
 
-func (i *MySQLTaskID) Scan(src any) error {
+type TaskID [idLength]byte
+
+func (i *TaskID) Scan(src any) error {
 	switch src := src.(type) {
 	case nil:
 		return nil
@@ -23,24 +32,24 @@ func (i *MySQLTaskID) Scan(src any) error {
 			return nil
 		}
 
-		if len(src) != 16 {
-			return fmt.Errorf("Scan: taskID is of incorrect length %d", len(src))
+		if len(src) != idLength {
+			return fmt.Errorf("%w: %v", errIncorrectLength, len(src))
 		}
 
 		copy((*i)[:], src)
 	default:
-		return fmt.Errorf("Scan: unable to scan type %T into MySQLTaskID", src)
+		return fmt.Errorf("%w: %T", errUnableToScan, src)
 	}
 
 	return nil
 }
 
-func (i MySQLTaskID) Value() (driver.Value, error) {
+func (i TaskID) Value() (driver.Value, error) {
 	return i[:], nil
 }
 
 type mySQLTask struct {
-	ID           MySQLTaskID      `db:"id"`
+	ID           TaskID           `db:"id"`
 	Type         string           `db:"type"`
 	Args         []byte           `db:"args"`
 	Queue        string           `db:"queue"`
@@ -57,7 +66,7 @@ type mySQLTask struct {
 
 func newFromTask(task *model.Task) *mySQLTask {
 	return &mySQLTask{
-		ID:           MySQLTaskID(task.ID),
+		ID:           TaskID(task.ID),
 		Type:         task.Type,
 		Args:         task.Args,
 		Queue:        task.Queue,
@@ -101,12 +110,12 @@ func mySQLTasksToTasks(mySQLTasks []*mySQLTask) []*model.Task {
 	return tasks
 }
 
-func timeToString(t time.Time) string {
-	return t.Format(timeFormat)
+func timeToString(input time.Time) string {
+	return input.Format(timeFormat)
 }
 
-func timeToSQLNullString(t *time.Time) sql.NullString {
-	if t == nil {
+func timeToSQLNullString(input *time.Time) sql.NullString {
+	if input == nil {
 		return sql.NullString{
 			String: "",
 			Valid:  false,
@@ -114,7 +123,7 @@ func timeToSQLNullString(t *time.Time) sql.NullString {
 	}
 
 	return sql.NullString{
-		String: t.Format(timeFormat),
+		String: input.Format(timeFormat),
 		Valid:  true,
 	}
 }

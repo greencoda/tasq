@@ -7,17 +7,19 @@ import (
 )
 
 func TestMySQLTaskIDScan(t *testing.T) {
-	var mySqlID MySQLTaskID
+	t.Parallel()
 
-	err := mySqlID.Scan(nil)
+	var mySQLID TaskID
+
+	err := mySQLID.Scan(nil)
 	assert.Nil(t, err)
 
-	err = mySqlID.Scan([]byte{})
+	err = mySQLID.Scan([]byte{})
 	assert.Nil(t, err)
 
-	err = mySqlID.Scan([]byte{12})
+	err = mySQLID.Scan([]byte{12})
 	assert.NotNil(t, err)
 
-	err = mySqlID.Scan("test")
+	err = mySQLID.Scan("test")
 	assert.NotNil(t, err)
 }

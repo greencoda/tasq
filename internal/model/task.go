@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/gob"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,11 +39,6 @@ var (
 	}
 )
 
-const (
-	MinTaskPriority int16 = -32767
-	MaxTaskPriority int16 = 32767
-)
-
 type Task struct {
 	ID           uuid.UUID
 	Type         string
@@ -59,41 +55,49 @@ type Task struct {
 	VisibleAt    time.Time
 }
 
-func NewTask(taskType string, taskArgs any, queue string, priority int16, maxReceives int32) *Task {
+func NewTask(taskType string, taskArgs any, queue string, priority int16, maxReceives int32) (*Task, error) {
 	taskID, err := uuid.NewRandom()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("failed to generate new task ID: %w", err)
 	}
 
 	encodedArgs, err := encodeTaskArgs(taskArgs)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	return &Task{
-		ID:          taskID,
-		Type:        taskType,
-		Args:        encodedArgs,
-		Queue:       queue,
-		Priority:    priority,
-		MaxReceives: maxReceives,
-		Status:      StatusNew,
-		CreatedAt:   time.Now(),
-	}
+		ID:           taskID,
+		Type:         taskType,
+		Args:         encodedArgs,
+		Queue:        queue,
+		Priority:     priority,
+		Status:       StatusNew,
+		ReceiveCount: 0,
+		MaxReceives:  maxReceives,
+		LastError: sql.NullString{
+			Valid:  false,
+			String: "",
+		},
+		CreatedAt:  time.Now(),
+		StartedAt:  nil,
+		FinishedAt: nil,
+		VisibleAt:  time.Time{},
+	}, nil
 }
 
 func (t *Task) GetDetails() *Task {
 	return t
 }
 
-func (t *Task) UnmarshalArgs(v any) error {
+func (t *Task) UnmarshalArgs(target any) error {
 	var (
 		buffer  = bytes.NewBuffer(t.Args)
 		decoder = gob.NewDecoder(buffer)
 	)
 
-	if err := decoder.Decode(v); err != nil {
-		return err
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("failed to decode task arguments: %w", err)
 	}
 
 	return nil
@@ -107,7 +111,7 @@ func encodeTaskArgs(taskArgs any) ([]byte, error) {
 
 	err := encoder.Encode(taskArgs)
 	if err != nil {
-		return []byte{}, err
+		return []byte{}, fmt.Errorf("failed to encode task arguments: %w", err)
 	}
 
 	return buffer.Bytes(), nil
