@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"database/sql"
 	"database/sql/driver"
 
 	"github.com/greencoda/tasq"
@@ -33,4 +34,12 @@ func InterpolateSQL(sql string, params map[string]any) string {
 
 func (d *Repository) PrepareWithTableName(sqlTemplate string) *sqlx.NamedStmt {
 	return d.prepareWithTableName(sqlTemplate)
+}
+
+func StringToSQLNullString(input *string) sql.NullString {
+	return stringToSQLNullString(input)
+}
+
+func ParseNullableString(input sql.NullString) *string {
+	return parseNullableString(input)
 }

@@ -1,30 +1,12 @@
-package mysql_test
+package postgres_test
 
 import (
 	"database/sql"
 	"testing"
 
-	"github.com/greencoda/tasq/repository/mysql"
+	"github.com/greencoda/tasq/repository/postgres"
 	"github.com/stretchr/testify/assert"
 )
-
-func TestMySQLTaskIDScan(t *testing.T) {
-	t.Parallel()
-
-	var mySQLID mysql.TaskID
-
-	err := mySQLID.Scan(nil)
-	assert.Nil(t, err)
-
-	err = mySQLID.Scan([]byte{})
-	assert.Nil(t, err)
-
-	err = mySQLID.Scan([]byte{12})
-	assert.NotNil(t, err)
-
-	err = mySQLID.Scan("test")
-	assert.NotNil(t, err)
-}
 
 func TestStringToSQLNullString(t *testing.T) {
 	var (
@@ -33,19 +15,19 @@ func TestStringToSQLNullString(t *testing.T) {
 		nilInput      *string
 	)
 
-	sqlNullString := mysql.StringToSQLNullString(&emptyInput)
+	sqlNullString := postgres.StringToSQLNullString(&emptyInput)
 	assert.Equal(t, sql.NullString{
 		String: emptyInput,
 		Valid:  true,
 	}, sqlNullString)
 
-	sqlNullString = mysql.StringToSQLNullString(&nonEmptyInput)
+	sqlNullString = postgres.StringToSQLNullString(&nonEmptyInput)
 	assert.Equal(t, sql.NullString{
 		String: nonEmptyInput,
 		Valid:  true,
 	}, sqlNullString)
 
-	sqlNullString = mysql.StringToSQLNullString(nilInput)
+	sqlNullString = postgres.StringToSQLNullString(nilInput)
 	assert.Equal(t, sql.NullString{
 		String: "",
 		Valid:  false,
@@ -68,14 +50,14 @@ func TestParseNullableString(t *testing.T) {
 		}
 	)
 
-	output := mysql.ParseNullableString(emptyInput)
+	output := postgres.ParseNullableString(emptyInput)
 	assert.NotNil(t, output)
 	assert.Equal(t, *output, emptyInput.String)
 
-	output = mysql.ParseNullableString(nonEmptyInput)
+	output = postgres.ParseNullableString(nonEmptyInput)
 	assert.NotNil(t, output)
 	assert.Equal(t, *output, nonEmptyInput.String)
 
-	output = mysql.ParseNullableString(nilInput)
+	output = postgres.ParseNullableString(nilInput)
 	assert.Nil(t, output)
 }

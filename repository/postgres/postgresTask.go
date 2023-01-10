@@ -34,7 +34,7 @@ func newFromTask(task *tasq.Task) *postgresTask {
 		Status:       task.Status,
 		ReceiveCount: task.ReceiveCount,
 		MaxReceives:  task.MaxReceives,
-		LastError:    task.LastError,
+		LastError:    stringToSQLNullString(task.LastError),
 		CreatedAt:    task.CreatedAt,
 		StartedAt:    task.StartedAt,
 		FinishedAt:   task.FinishedAt,
@@ -52,7 +52,7 @@ func (t *postgresTask) toTask() *tasq.Task {
 		Status:       t.Status,
 		ReceiveCount: t.ReceiveCount,
 		MaxReceives:  t.MaxReceives,
-		LastError:    t.LastError,
+		LastError:    parseNullableString(t.LastError),
 		CreatedAt:    t.CreatedAt,
 		StartedAt:    t.StartedAt,
 		FinishedAt:   t.FinishedAt,
@@ -68,4 +68,26 @@ func postgresTasksToTasks(postgresTasks []*postgresTask) []*tasq.Task {
 	}
 
 	return tasks
+}
+
+func stringToSQLNullString(input *string) sql.NullString {
+	if input == nil {
+		return sql.NullString{
+			String: "",
+			Valid:  false,
+		}
+	}
+
+	return sql.NullString{
+		String: *input,
+		Valid:  true,
+	}
+}
+
+func parseNullableString(input sql.NullString) *string {
+	if !input.Valid {
+		return nil
+	}
+
+	return &input.String
 }

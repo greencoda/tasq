@@ -2,7 +2,6 @@ package tasq
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/gob"
 	"fmt"
 	"time"
@@ -70,7 +69,7 @@ type Task struct {
 	Status       TaskStatus
 	ReceiveCount int32
 	MaxReceives  int32
-	LastError    sql.NullString
+	LastError    *string
 	CreatedAt    time.Time
 	StartedAt    *time.Time
 	FinishedAt   *time.Time
@@ -98,14 +97,11 @@ func NewTask(taskType string, taskArgs any, queue string, priority int16, maxRec
 		Status:       StatusNew,
 		ReceiveCount: 0,
 		MaxReceives:  maxReceives,
-		LastError: sql.NullString{
-			Valid:  false,
-			String: "",
-		},
-		CreatedAt:  time.Now(),
-		StartedAt:  nil,
-		FinishedAt: nil,
-		VisibleAt:  time.Time{},
+		LastError:    nil,
+		CreatedAt:    time.Now(),
+		StartedAt:    nil,
+		FinishedAt:   nil,
+		VisibleAt:    time.Time{},
 	}, nil
 }
 

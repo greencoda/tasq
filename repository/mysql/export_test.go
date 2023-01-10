@@ -1,6 +1,7 @@
 package mysql
 
 import (
+	"database/sql"
 	"database/sql/driver"
 
 	"github.com/greencoda/tasq"
@@ -32,4 +33,12 @@ func InterpolateSQL(sql string, params map[string]any) string {
 
 func (d *Repository) GetQueryWithTableName(sqlTemplate string, args ...any) (string, []any) {
 	return d.getQueryWithTableName(sqlTemplate, args...)
+}
+
+func StringToSQLNullString(input *string) sql.NullString {
+	return stringToSQLNullString(input)
+}
+
+func ParseNullableString(input sql.NullString) *string {
+	return parseNullableString(input)
 }

@@ -79,7 +79,7 @@ func newFromTask(task *tasq.Task) *mySQLTask {
 		Status:       task.Status,
 		ReceiveCount: task.ReceiveCount,
 		MaxReceives:  task.MaxReceives,
-		LastError:    task.LastError,
+		LastError:    stringToSQLNullString(task.LastError),
 		CreatedAt:    timeToString(task.CreatedAt),
 		StartedAt:    timeToSQLNullString(task.StartedAt),
 		FinishedAt:   timeToSQLNullString(task.FinishedAt),
@@ -97,7 +97,7 @@ func (t *mySQLTask) toTask() *tasq.Task {
 		Status:       t.Status,
 		ReceiveCount: t.ReceiveCount,
 		MaxReceives:  t.MaxReceives,
-		LastError:    t.LastError,
+		LastError:    parseNullableString(t.LastError),
 		CreatedAt:    parseTime(t.CreatedAt),
 		StartedAt:    parseNullableTime(t.StartedAt),
 		FinishedAt:   parseNullableTime(t.FinishedAt),
@@ -113,6 +113,20 @@ func mySQLTasksToTasks(mySQLTasks []*mySQLTask) []*tasq.Task {
 	}
 
 	return tasks
+}
+
+func stringToSQLNullString(input *string) sql.NullString {
+	if input == nil {
+		return sql.NullString{
+			String: "",
+			Valid:  false,
+		}
+	}
+
+	return sql.NullString{
+		String: *input,
+		Valid:  true,
+	}
 }
 
 func timeToString(input time.Time) string {
@@ -131,6 +145,14 @@ func timeToSQLNullString(input *time.Time) sql.NullString {
 		String: input.Format(timeFormat),
 		Valid:  true,
 	}
+}
+
+func parseNullableString(input sql.NullString) *string {
+	if !input.Valid {
+		return nil
+	}
+
+	return &input.String
 }
 
 func parseTime(input string) time.Time {
