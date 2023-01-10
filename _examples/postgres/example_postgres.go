@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/greencoda/tasq"
-	tasqModel "github.com/greencoda/tasq/pkg"
 	tasqPostgres "github.com/greencoda/tasq/repository/postgres"
 )
 
@@ -24,7 +23,7 @@ type SampleTaskArgs struct {
 	Value float64
 }
 
-func processSampleTask(task *tasqModel.Task) error {
+func processSampleTask(task *tasq.Task) error {
 	var args SampleTaskArgs
 
 	err := task.UnmarshalArgs(&args)
