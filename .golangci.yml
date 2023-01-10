@@ -7,11 +7,19 @@ run:
 
 linters:
   enable:
+    - containedctx
     - errcheck
-    - goimports
-    - golint
+    - errname
+    - gocritic
+    - gofumpt
+    - gosimple
     - govet
+    - ineffassign
+    - reassign
     - staticcheck
+    - typecheck
+    - unused
+    - wsl
 
 issues:
   exclude-use-default: false
