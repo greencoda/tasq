@@ -11,7 +11,7 @@ import (
 
 	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/internal/model"
+	"github.com/greencoda/tasq/pkg/model"
 	"github.com/greencoda/tasq/pkg/repository"
 )
 
@@ -32,7 +32,7 @@ type Logger interface {
 	Printf(format string, v ...any)
 }
 
-type handlerFunc func(task Task) error
+type handlerFunc func(task *model.Task) error
 
 type handlerFuncMap map[string]handlerFunc
 

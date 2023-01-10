@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/greencoda/tasq"
-	"github.com/greencoda/tasq/internal/model"
 	mockrepository "github.com/greencoda/tasq/pkg/mocks/repository"
+	"github.com/greencoda/tasq/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"

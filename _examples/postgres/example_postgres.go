@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/greencoda/tasq"
+	tasqModel "github.com/greencoda/tasq/pkg/model"
 	tasqPostgres "github.com/greencoda/tasq/pkg/repository/postgres"
 )
 
@@ -23,7 +24,7 @@ type SampleTaskArgs struct {
 	Value float64
 }
 
-func processSampleTask(task tasq.Task) error {
+func processSampleTask(task *tasqModel.Task) error {
 	var args SampleTaskArgs
 
 	err := task.UnmarshalArgs(&args)
@@ -33,9 +34,7 @@ func processSampleTask(task tasq.Task) error {
 
 	// do something here with the task arguments as input
 	// for purposes of the sample, we'll just log its details here
-	taskDetails := task.GetDetails()
-
-	log.Printf("executed task '%s' with args '%+v'", taskDetails.ID, args)
+	log.Printf("executed task '%s' with args '%+v'", task.ID, args)
 
 	return nil
 }
@@ -72,7 +71,7 @@ func produceTasks(ctx context.Context, producer *tasq.Producer) {
 		if err != nil {
 			log.Panicf("error while submitting task to tasq: %s", err)
 		} else {
-			log.Printf("successfully submitted task '%s'", t.GetDetails().ID)
+			log.Printf("successfully submitted task '%s'", t.ID)
 		}
 	}
 }

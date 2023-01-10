@@ -11,7 +11,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/internal/model"
+	"github.com/greencoda/tasq/pkg/model"
 	"github.com/greencoda/tasq/pkg/repository"
 	"github.com/greencoda/tasq/pkg/repository/postgres"
 	"github.com/stretchr/testify/assert"

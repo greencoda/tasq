@@ -3,7 +3,7 @@ package postgres
 import (
 	"database/sql/driver"
 
-	"github.com/greencoda/tasq/internal/model"
+	"github.com/greencoda/tasq/pkg/model"
 	"github.com/jmoiron/sqlx"
 )
 

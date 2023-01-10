@@ -5,7 +5,7 @@ package mocks
 import (
 	context "context"
 
-	model "github.com/greencoda/tasq/internal/model"
+	model "github.com/greencoda/tasq/pkg/model"
 	mock "github.com/stretchr/testify/mock"
 
 	repository "github.com/greencoda/tasq/pkg/repository"

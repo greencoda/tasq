@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/internal/model"
+	"github.com/greencoda/tasq/pkg/model"
 )
 
 // Ordering is an enum type describing the polling strategy utitlized during

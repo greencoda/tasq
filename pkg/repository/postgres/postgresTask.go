@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/internal/model"
+	"github.com/greencoda/tasq/pkg/model"
 )
 
 type postgresTask struct {

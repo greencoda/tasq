@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/internal/model"
+	"github.com/greencoda/tasq/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
@@ -75,16 +75,6 @@ func (s *TaskTestSuite) TestNewTask() {
 	invalidUUIDTask, err := model.NewTask("testTask", false, "testQueue", 0, 5)
 	assert.Nil(s.T(), invalidUUIDTask)
 	assert.NotNil(s.T(), err)
-}
-
-func (s *TaskTestSuite) TestTaskGetDetails() {
-	// Create task successfully
-	task, _ := model.NewTask("testTask", true, "testQueue", 0, 5)
-	assert.NotNil(s.T(), task)
-
-	// Get task details
-	taskModel := task.GetDetails()
-	assert.IsType(s.T(), task, taskModel)
 }
 
 func (s *TaskTestSuite) TestTaskUnmarshalArgs() {

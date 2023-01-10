@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/greencoda/tasq/internal/model"
+	"github.com/greencoda/tasq/pkg/model"
 )
 
 // Cleaner is a service instance created by a Client with reference to that client

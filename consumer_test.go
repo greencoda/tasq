@@ -10,8 +10,8 @@ import (
 	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq"
-	"github.com/greencoda/tasq/internal/model"
 	mockrepository "github.com/greencoda/tasq/pkg/mocks/repository"
+	"github.com/greencoda/tasq/pkg/model"
 	"github.com/greencoda/tasq/pkg/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -69,19 +69,19 @@ func (s *ConsumerTestSuite) TestNewConsumer() {
 
 func (s *ConsumerTestSuite) TestLearnAndForget() {
 	// Learning a new task execution method is successful
-	err := s.tasqConsumer.Learn("testTask", func(task tasq.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
 		return nil
 	}, false)
 	assert.Nil(s.T(), err)
 
 	// Learning an already learned task execution method returns an error
-	err = s.tasqConsumer.Learn("testTask", func(task tasq.Task) error {
+	err = s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
 		return nil
 	}, false)
 	assert.NotNil(s.T(), err)
 
 	// Learning an already learned task execution method with override being true is successful
-	err = s.tasqConsumer.Learn("testTask", func(task tasq.Task) error {
+	err = s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
 		return nil
 	}, true)
 	assert.Nil(s.T(), err)
@@ -113,7 +113,7 @@ func (s *ConsumerTestSuite) TestStartStopTwice() {
 	s.tasqConsumer.
 		WithQueues("testQueue")
 
-	err := s.tasqConsumer.Learn("testTask", func(task tasq.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
 		return nil
 	}, false)
 	assert.Nil(s.T(), err)
@@ -159,7 +159,7 @@ func (s *ConsumerTestSuite) TestConsumption() {
 		failNoRequeueTestTask, _ = model.NewTask("testTask", failTestArgs, "testQueue", 100, 1)
 	)
 
-	err := s.tasqConsumer.Learn("testTask", func(task tasq.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
 		var args string
 
 		err := task.UnmarshalArgs(&args)
@@ -299,7 +299,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 
 	successTestTask, _ := model.NewTask("testTask", true, "testQueue", 100, 5)
 
-	err := s.tasqConsumer.Learn("testTask", func(task tasq.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
 		return nil
 	}, false)
 	require.Nil(s.T(), err)
@@ -356,7 +356,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 
 	successTestTask, _ := model.NewTask("testTask", true, "testQueue", 100, 5)
 
-	err := s.tasqConsumer.Learn("testTask", func(task tasq.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
 		return nil
 	}, false)
 	require.Nil(s.T(), err)
@@ -432,7 +432,7 @@ func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 
 	anotherTestTask, _ := model.NewTask("anotherTestTask", true, "testQueue", 100, 5)
 
-	err := s.tasqConsumer.Learn("testTask", func(task tasq.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
 		return nil
 	}, false)
 	require.Nil(s.T(), err)
@@ -503,7 +503,7 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 		}
 	)
 
-	err := s.tasqConsumer.Learn("testTask", func(task tasq.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
 		return nil
 	}, false)
 	require.Nil(s.T(), err)

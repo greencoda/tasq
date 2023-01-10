@@ -109,10 +109,6 @@ func NewTask(taskType string, taskArgs any, queue string, priority int16, maxRec
 	}, nil
 }
 
-func (t *Task) GetDetails() *Task {
-	return t
-}
-
 func (t *Task) UnmarshalArgs(target any) error {
 	var (
 		buffer  = bytes.NewBuffer(t.Args)

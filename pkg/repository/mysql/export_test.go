@@ -3,7 +3,7 @@ package mysql
 import (
 	"database/sql/driver"
 
-	"github.com/greencoda/tasq/internal/model"
+	"github.com/greencoda/tasq/pkg/model"
 )
 
 func GetTestTaskValues(task *model.Task) []driver.Value {

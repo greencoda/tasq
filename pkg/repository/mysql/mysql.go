@@ -10,7 +10,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql" // import mysql driver
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/internal/model"
+	"github.com/greencoda/tasq/pkg/model"
 	"github.com/greencoda/tasq/pkg/repository"
 	"github.com/jmoiron/sqlx"
 )

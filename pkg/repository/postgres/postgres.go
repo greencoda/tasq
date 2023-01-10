@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/internal/model"
+	"github.com/greencoda/tasq/pkg/model"
 	"github.com/greencoda/tasq/pkg/repository"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
