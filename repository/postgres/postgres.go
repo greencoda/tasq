@@ -1,16 +1,18 @@
+// Package postgres provides the implementation of a tasq repository in PostgreSQL
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/pkg/model"
-	"github.com/greencoda/tasq/pkg/repository"
+	"github.com/greencoda/tasq"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 )
@@ -19,12 +21,14 @@ const driverName = "postgres"
 
 var errUnexpectedDataSource = errors.New("unexpected dataSource type")
 
+// Repository implements the menthods necessary for tasq to work in PostgreSQL.
 type Repository struct {
 	db             *sqlx.DB
 	statusTypeName string
 	tableName      string
 }
 
+// NewRepository creates a new PostgreSQL Repository instance.
 func NewRepository(dataSource any, prefix string) (*Repository, error) {
 	switch d := dataSource.(type) {
 	case string:
@@ -56,6 +60,8 @@ func newRepositoryFromDB(db *sql.DB, prefix string) (*Repository, error) {
 	}, nil
 }
 
+// Migrate prepares the database with the task status type
+// and by adding the tasks table.
 func (d *Repository) Migrate(ctx context.Context) error {
 	err := d.migrateStatus(ctx)
 	if err != nil {
@@ -70,9 +76,11 @@ func (d *Repository) Migrate(ctx context.Context) error {
 	return nil
 }
 
-func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibilityTimeout time.Duration) ([]*model.Task, error) {
+// PingTasks pings a list of tasks by their ID
+// and extends their invisibility timestamp with the supplied timeout parameter.
+func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibilityTimeout time.Duration) ([]*tasq.Task, error) {
 	if len(taskIDs) == 0 {
-		return []*model.Task{}, nil
+		return []*tasq.Task{}, nil
 	}
 
 	var (
@@ -93,15 +101,17 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 		"pinged_ids": pq.Array(taskIDs),
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return []*model.Task{}, fmt.Errorf("failed to update tasks: %w", err)
+		return []*tasq.Task{}, fmt.Errorf("failed to update tasks: %w", err)
 	}
 
 	return postgresTasksToTasks(pingedTasks), nil
 }
 
-func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering repository.Ordering, pollLimit int) ([]*model.Task, error) {
+// PollTasks polls for available tasks matching supplied the parameters
+// and sets their invisibility the supplied timeout parameter to the future.
+func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering tasq.Ordering, pollLimit int) ([]*tasq.Task, error) {
 	if pollLimit == 0 {
-		return []*model.Task{}, nil
+		return []*tasq.Task{}, nil
 	}
 
 	var (
@@ -129,22 +139,24 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 	)
 
 	err := stmt.SelectContext(ctx, &polledTasks, map[string]any{
-		"status":        model.StatusEnqueued,
+		"status":        tasq.StatusEnqueued,
 		"visible_at":    pollTime.Add(visibilityTimeout),
 		"poll_types":    pq.Array(types),
 		"poll_queues":   pq.Array(queues),
-		"poll_statuses": pq.Array(model.GetTaskStatuses(model.OpenTasks)),
+		"poll_statuses": pq.Array(tasq.GetTaskStatuses(tasq.OpenTasks)),
 		"poll_time":     pollTime,
 		"poll_ordering": pq.Array(getOrderingDirectives(ordering)),
 		"poll_limit":    pollLimit,
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return []*model.Task{}, fmt.Errorf("failed to update tasks: %w", err)
+		return []*tasq.Task{}, fmt.Errorf("failed to update tasks: %w", err)
 	}
 
 	return postgresTasksToTasks(polledTasks), nil
 }
 
+// CleanTasks removes finished tasks from the queue
+// if their creation date is past the supplied duration.
 func (d *Repository) CleanTasks(ctx context.Context, cleanAge time.Duration) (int64, error) {
 	var (
 		cleanTime   = time.Now()
@@ -156,7 +168,7 @@ func (d *Repository) CleanTasks(ctx context.Context, cleanAge time.Duration) (in
 	)
 
 	result, err := stmt.ExecContext(ctx, map[string]any{
-		"statuses": pq.Array(model.GetTaskStatuses(model.FinishedTasks)),
+		"statuses": pq.Array(tasq.GetTaskStatuses(tasq.FinishedTasks)),
 		"cleanAt":  cleanTime.Add(-cleanAge),
 	})
 	if err != nil {
@@ -171,7 +183,9 @@ func (d *Repository) CleanTasks(ctx context.Context, cleanAge time.Duration) (in
 	return rowsAffected, nil
 }
 
-func (d *Repository) RegisterStart(ctx context.Context, task *model.Task) (*model.Task, error) {
+// RegisterStart marks a task as started with the 'in progress' status
+// and records the time of start.
+func (d *Repository) RegisterStart(ctx context.Context, task *tasq.Task) (*tasq.Task, error) {
 	var (
 		updatedTask = new(postgresTask)
 		startTime   = time.Now()
@@ -186,7 +200,7 @@ func (d *Repository) RegisterStart(ctx context.Context, task *model.Task) (*mode
 
 	err := stmt.
 		QueryRowContext(ctx, map[string]any{
-			"status":    model.StatusInProgress,
+			"status":    tasq.StatusInProgress,
 			"startTime": startTime,
 			"taskID":    task.ID,
 		}).
@@ -198,7 +212,8 @@ func (d *Repository) RegisterStart(ctx context.Context, task *model.Task) (*mode
 	return updatedTask.toTask(), nil
 }
 
-func (d *Repository) RegisterError(ctx context.Context, task *model.Task, errTask error) (*model.Task, error) {
+// RegisterError records an error message on the task as last error.
+func (d *Repository) RegisterError(ctx context.Context, task *tasq.Task, errTask error) (*tasq.Task, error) {
 	var (
 		updatedTask = new(postgresTask)
 		sqlTemplate = `UPDATE {{.tableName}} SET
@@ -222,7 +237,9 @@ func (d *Repository) RegisterError(ctx context.Context, task *model.Task, errTas
 	return updatedTask.toTask(), nil
 }
 
-func (d *Repository) RegisterFinish(ctx context.Context, task *model.Task, finishStatus model.TaskStatus) (*model.Task, error) {
+// RegisterFinish marks a task as finished with the supplied status
+// and records the time of finish.
+func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finishStatus tasq.TaskStatus) (*tasq.Task, error) {
 	var (
 		updatedTask = new(postgresTask)
 		finishTime  = time.Now()
@@ -249,7 +266,8 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *model.Task, finis
 	return updatedTask.toTask(), nil
 }
 
-func (d *Repository) SubmitTask(ctx context.Context, task *model.Task) (*model.Task, error) {
+// SubmitTask adds the supplied task to the queue.
+func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Task, error) {
 	var (
 		postgresTask = newFromTask(task)
 		sqlTemplate  = `INSERT INTO {{.tableName}} 
@@ -279,7 +297,8 @@ func (d *Repository) SubmitTask(ctx context.Context, task *model.Task) (*model.T
 	return postgresTask.toTask(), nil
 }
 
-func (d *Repository) DeleteTask(ctx context.Context, task *model.Task) error {
+// DeleteTask removes the supplied task from the queue.
+func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task) error {
 	var (
 		sqlTemplate = `DELETE FROM {{.tableName}}
 			WHERE
@@ -294,7 +313,8 @@ func (d *Repository) DeleteTask(ctx context.Context, task *model.Task) error {
 	return err
 }
 
-func (d *Repository) RequeueTask(ctx context.Context, task *model.Task) (*model.Task, error) {
+// RequeueTask marks a task as new, so it can be picked up again.
+func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Task, error) {
 	var (
 		updatedTask = new(postgresTask)
 		sqlTemplate = `UPDATE {{.tableName}} SET
@@ -307,7 +327,7 @@ func (d *Repository) RequeueTask(ctx context.Context, task *model.Task) (*model.
 
 	err := stmt.
 		QueryRowContext(ctx, map[string]any{
-			"status": model.StatusNew,
+			"status": tasq.StatusNew,
 			"taskID": task.ID,
 		}).
 		StructScan(updatedTask)
@@ -326,9 +346,9 @@ func (d *Repository) migrateStatus(ctx context.Context) error {
 					CREATE TYPE {{.statusTypeName}} AS ENUM ({{.enumValues}});
 				END IF;
 			END$$;`
-		query = repository.InterpolateSQL(sqlTemplate, map[string]any{
+		query = interpolateSQL(sqlTemplate, map[string]any{
 			"statusTypeName": d.statusTypeName,
-			"enumValues":     sliceToPostgreSQLValueList(model.GetTaskStatuses(model.AllTasks)),
+			"enumValues":     sliceToPostgreSQLValueList(tasq.GetTaskStatuses(tasq.AllTasks)),
 		})
 	)
 
@@ -357,7 +377,7 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 			"visible_at" TIMESTAMPTZ NOT NULL DEFAULT '0001-01-01 00:00:00.000000'
 		);`
 
-	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
+	query := interpolateSQL(sqlTemplate, map[string]any{
 		"tableName":      d.tableName,
 		"statusTypeName": d.statusTypeName,
 	})
@@ -371,7 +391,7 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 }
 
 func (d *Repository) prepareWithTableName(sqlTemplate string) *sqlx.NamedStmt {
-	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
+	query := interpolateSQL(sqlTemplate, map[string]any{
 		"tableName": d.tableName,
 	})
 
@@ -383,15 +403,15 @@ func (d *Repository) prepareWithTableName(sqlTemplate string) *sqlx.NamedStmt {
 	return namedStmt
 }
 
-func getOrderingDirectives(ordering repository.Ordering) []string {
+func getOrderingDirectives(ordering tasq.Ordering) []string {
 	var (
 		OrderingCreatedAtFirst = []string{"created_at ASC", "priority DESC"}
 		OrderingPriorityFirst  = []string{"priority DESC", "created_at ASC"}
 	)
 
-	if orderingDirectives, ok := map[repository.Ordering][]string{
-		repository.OrderingCreatedAtFirst: OrderingCreatedAtFirst,
-		repository.OrderingPriorityFirst:  OrderingPriorityFirst,
+	if orderingDirectives, ok := map[tasq.Ordering][]string{
+		tasq.OrderingCreatedAtFirst: OrderingCreatedAtFirst,
+		tasq.OrderingPriorityFirst:  OrderingPriorityFirst,
 	}[ordering]; ok {
 		return orderingDirectives
 	}
@@ -427,4 +447,20 @@ func tableName(prefix string) string {
 	}
 
 	return tableName
+}
+
+func interpolateSQL(sql string, params map[string]any) string {
+	template, err := template.New("sql").Parse(sql)
+	if err != nil {
+		panic(err)
+	}
+
+	var outputBuffer bytes.Buffer
+
+	err = template.Execute(&outputBuffer, params)
+	if err != nil {
+		panic(err)
+	}
+
+	return outputBuffer.String()
 }

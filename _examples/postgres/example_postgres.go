@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/greencoda/tasq"
-	tasqModel "github.com/greencoda/tasq/pkg/model"
-	tasqPostgres "github.com/greencoda/tasq/pkg/repository/postgres"
+	tasqModel "github.com/greencoda/tasq/pkg"
+	tasqPostgres "github.com/greencoda/tasq/repository/postgres"
 )
 
 const (

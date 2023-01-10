@@ -5,10 +5,8 @@ package mocks
 import (
 	context "context"
 
-	model "github.com/greencoda/tasq/pkg/model"
+	tasq "github.com/greencoda/tasq"
 	mock "github.com/stretchr/testify/mock"
-
-	repository "github.com/greencoda/tasq/pkg/repository"
 
 	time "time"
 
@@ -42,11 +40,11 @@ func (_m *IRepository) CleanTasks(ctx context.Context, minimumAge time.Duration)
 }
 
 // DeleteTask provides a mock function with given fields: ctx, task
-func (_m *IRepository) DeleteTask(ctx context.Context, task *model.Task) error {
+func (_m *IRepository) DeleteTask(ctx context.Context, task *tasq.Task) error {
 	ret := _m.Called(ctx, task)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *model.Task) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *tasq.Task) error); ok {
 		r0 = rf(ctx, task)
 	} else {
 		r0 = ret.Error(0)
@@ -70,15 +68,15 @@ func (_m *IRepository) Migrate(ctx context.Context) error {
 }
 
 // PingTasks provides a mock function with given fields: ctx, taskIDs, visibilityTimeout
-func (_m *IRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibilityTimeout time.Duration) ([]*model.Task, error) {
+func (_m *IRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibilityTimeout time.Duration) ([]*tasq.Task, error) {
 	ret := _m.Called(ctx, taskIDs, visibilityTimeout)
 
-	var r0 []*model.Task
-	if rf, ok := ret.Get(0).(func(context.Context, []uuid.UUID, time.Duration) []*model.Task); ok {
+	var r0 []*tasq.Task
+	if rf, ok := ret.Get(0).(func(context.Context, []uuid.UUID, time.Duration) []*tasq.Task); ok {
 		r0 = rf(ctx, taskIDs, visibilityTimeout)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*model.Task)
+			r0 = ret.Get(0).([]*tasq.Task)
 		}
 	}
 
@@ -93,20 +91,20 @@ func (_m *IRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visib
 }
 
 // PollTasks provides a mock function with given fields: ctx, types, queues, visibilityTimeout, ordering, limit
-func (_m *IRepository) PollTasks(ctx context.Context, types []string, queues []string, visibilityTimeout time.Duration, ordering repository.Ordering, limit int) ([]*model.Task, error) {
+func (_m *IRepository) PollTasks(ctx context.Context, types []string, queues []string, visibilityTimeout time.Duration, ordering tasq.Ordering, limit int) ([]*tasq.Task, error) {
 	ret := _m.Called(ctx, types, queues, visibilityTimeout, ordering, limit)
 
-	var r0 []*model.Task
-	if rf, ok := ret.Get(0).(func(context.Context, []string, []string, time.Duration, repository.Ordering, int) []*model.Task); ok {
+	var r0 []*tasq.Task
+	if rf, ok := ret.Get(0).(func(context.Context, []string, []string, time.Duration, tasq.Ordering, int) []*tasq.Task); ok {
 		r0 = rf(ctx, types, queues, visibilityTimeout, ordering, limit)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*model.Task)
+			r0 = ret.Get(0).([]*tasq.Task)
 		}
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, []string, []string, time.Duration, repository.Ordering, int) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, []string, []string, time.Duration, tasq.Ordering, int) error); ok {
 		r1 = rf(ctx, types, queues, visibilityTimeout, ordering, limit)
 	} else {
 		r1 = ret.Error(1)
@@ -116,20 +114,20 @@ func (_m *IRepository) PollTasks(ctx context.Context, types []string, queues []s
 }
 
 // RegisterError provides a mock function with given fields: ctx, task, errTask
-func (_m *IRepository) RegisterError(ctx context.Context, task *model.Task, errTask error) (*model.Task, error) {
+func (_m *IRepository) RegisterError(ctx context.Context, task *tasq.Task, errTask error) (*tasq.Task, error) {
 	ret := _m.Called(ctx, task, errTask)
 
-	var r0 *model.Task
-	if rf, ok := ret.Get(0).(func(context.Context, *model.Task, error) *model.Task); ok {
+	var r0 *tasq.Task
+	if rf, ok := ret.Get(0).(func(context.Context, *tasq.Task, error) *tasq.Task); ok {
 		r0 = rf(ctx, task, errTask)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Task)
+			r0 = ret.Get(0).(*tasq.Task)
 		}
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, *model.Task, error) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *tasq.Task, error) error); ok {
 		r1 = rf(ctx, task, errTask)
 	} else {
 		r1 = ret.Error(1)
@@ -139,20 +137,20 @@ func (_m *IRepository) RegisterError(ctx context.Context, task *model.Task, errT
 }
 
 // RegisterFinish provides a mock function with given fields: ctx, task, finishStatus
-func (_m *IRepository) RegisterFinish(ctx context.Context, task *model.Task, finishStatus model.TaskStatus) (*model.Task, error) {
+func (_m *IRepository) RegisterFinish(ctx context.Context, task *tasq.Task, finishStatus tasq.TaskStatus) (*tasq.Task, error) {
 	ret := _m.Called(ctx, task, finishStatus)
 
-	var r0 *model.Task
-	if rf, ok := ret.Get(0).(func(context.Context, *model.Task, model.TaskStatus) *model.Task); ok {
+	var r0 *tasq.Task
+	if rf, ok := ret.Get(0).(func(context.Context, *tasq.Task, tasq.TaskStatus) *tasq.Task); ok {
 		r0 = rf(ctx, task, finishStatus)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Task)
+			r0 = ret.Get(0).(*tasq.Task)
 		}
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, *model.Task, model.TaskStatus) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *tasq.Task, tasq.TaskStatus) error); ok {
 		r1 = rf(ctx, task, finishStatus)
 	} else {
 		r1 = ret.Error(1)
@@ -162,20 +160,20 @@ func (_m *IRepository) RegisterFinish(ctx context.Context, task *model.Task, fin
 }
 
 // RegisterStart provides a mock function with given fields: ctx, task
-func (_m *IRepository) RegisterStart(ctx context.Context, task *model.Task) (*model.Task, error) {
+func (_m *IRepository) RegisterStart(ctx context.Context, task *tasq.Task) (*tasq.Task, error) {
 	ret := _m.Called(ctx, task)
 
-	var r0 *model.Task
-	if rf, ok := ret.Get(0).(func(context.Context, *model.Task) *model.Task); ok {
+	var r0 *tasq.Task
+	if rf, ok := ret.Get(0).(func(context.Context, *tasq.Task) *tasq.Task); ok {
 		r0 = rf(ctx, task)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Task)
+			r0 = ret.Get(0).(*tasq.Task)
 		}
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, *model.Task) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *tasq.Task) error); ok {
 		r1 = rf(ctx, task)
 	} else {
 		r1 = ret.Error(1)
@@ -185,20 +183,20 @@ func (_m *IRepository) RegisterStart(ctx context.Context, task *model.Task) (*mo
 }
 
 // RequeueTask provides a mock function with given fields: ctx, task
-func (_m *IRepository) RequeueTask(ctx context.Context, task *model.Task) (*model.Task, error) {
+func (_m *IRepository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Task, error) {
 	ret := _m.Called(ctx, task)
 
-	var r0 *model.Task
-	if rf, ok := ret.Get(0).(func(context.Context, *model.Task) *model.Task); ok {
+	var r0 *tasq.Task
+	if rf, ok := ret.Get(0).(func(context.Context, *tasq.Task) *tasq.Task); ok {
 		r0 = rf(ctx, task)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Task)
+			r0 = ret.Get(0).(*tasq.Task)
 		}
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, *model.Task) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *tasq.Task) error); ok {
 		r1 = rf(ctx, task)
 	} else {
 		r1 = ret.Error(1)
@@ -208,20 +206,20 @@ func (_m *IRepository) RequeueTask(ctx context.Context, task *model.Task) (*mode
 }
 
 // SubmitTask provides a mock function with given fields: ctx, task
-func (_m *IRepository) SubmitTask(ctx context.Context, task *model.Task) (*model.Task, error) {
+func (_m *IRepository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Task, error) {
 	ret := _m.Called(ctx, task)
 
-	var r0 *model.Task
-	if rf, ok := ret.Get(0).(func(context.Context, *model.Task) *model.Task); ok {
+	var r0 *tasq.Task
+	if rf, ok := ret.Get(0).(func(context.Context, *tasq.Task) *tasq.Task); ok {
 		r0 = rf(ctx, task)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Task)
+			r0 = ret.Get(0).(*tasq.Task)
 		}
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, *model.Task) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *tasq.Task) error); ok {
 		r1 = rf(ctx, task)
 	} else {
 		r1 = ret.Error(1)

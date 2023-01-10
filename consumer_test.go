@@ -10,9 +10,7 @@ import (
 	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq"
-	mockrepository "github.com/greencoda/tasq/pkg/mocks/repository"
-	"github.com/greencoda/tasq/pkg/model"
-	"github.com/greencoda/tasq/pkg/repository"
+	"github.com/greencoda/tasq/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -26,7 +24,7 @@ var (
 
 type ConsumerTestSuite struct {
 	suite.Suite
-	mockRepository *mockrepository.IRepository
+	mockRepository *mocks.IRepository
 	mockClock      *clock.Mock
 	tasqClient     *tasq.Client
 	tasqConsumer   *tasq.Consumer
@@ -40,7 +38,7 @@ func TestConsumerTestSuite(t *testing.T) {
 }
 
 func (s *ConsumerTestSuite) SetupTest() {
-	s.mockRepository = mockrepository.NewIRepository(s.T())
+	s.mockRepository = mocks.NewIRepository(s.T())
 	s.mockClock = clock.NewMock()
 	s.mockClock.Set(time.Now())
 
@@ -69,19 +67,19 @@ func (s *ConsumerTestSuite) TestNewConsumer() {
 
 func (s *ConsumerTestSuite) TestLearnAndForget() {
 	// Learning a new task execution method is successful
-	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
 	assert.Nil(s.T(), err)
 
 	// Learning an already learned task execution method returns an error
-	err = s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
+	err = s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
 	assert.NotNil(s.T(), err)
 
 	// Learning an already learned task execution method with override being true is successful
-	err = s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
+	err = s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, true)
 	assert.Nil(s.T(), err)
@@ -113,14 +111,14 @@ func (s *ConsumerTestSuite) TestStartStopTwice() {
 	s.tasqConsumer.
 		WithQueues("testQueue")
 
-	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
 	assert.Nil(s.T(), err)
 
 	// Getting tasks
-	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Return([]*model.Task{}, nil)
-	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 10).Return([]*model.Task{}, nil)
+	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Return([]*tasq.Task{}, nil)
+	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 10).Return([]*tasq.Task{}, nil)
 
 	// Start up the consumer
 	err = s.tasqConsumer.Start(ctx)
@@ -154,12 +152,12 @@ func (s *ConsumerTestSuite) TestConsumption() {
 		successTestArgs = "success"
 		failTestArgs    = "fail"
 
-		successTestTask, _       = model.NewTask("testTask", successTestArgs, "testQueue", 100, 5)
-		failTestTask, _          = model.NewTask("testTask", failTestArgs, "testQueue", 100, 5)
-		failNoRequeueTestTask, _ = model.NewTask("testTask", failTestArgs, "testQueue", 100, 1)
+		successTestTask, _       = tasq.NewTask("testTask", successTestArgs, "testQueue", 100, 5)
+		failTestTask, _          = tasq.NewTask("testTask", failTestArgs, "testQueue", 100, 5)
+		failNoRequeueTestTask, _ = tasq.NewTask("testTask", failTestArgs, "testQueue", 100, 1)
 	)
 
-	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		var args string
 
 		err := task.UnmarshalArgs(&args)
@@ -174,7 +172,7 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	require.Nil(s.T(), err)
 
 	// Increment receive counts
-	for _, task := range []*model.Task{
+	for _, task := range []*tasq.Task{
 		successTestTask,
 		failTestTask,
 		failNoRequeueTestTask,
@@ -185,11 +183,11 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	// Getting tasks
 
 	// First try - pinging fails
-	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Once().Return([]*model.Task{}, errRepository)
+	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Once().Return([]*tasq.Task{}, errRepository)
 
 	// First try - pinging succeeds
-	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Once().Return([]*model.Task{}, nil)
-	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 10).Return([]*model.Task{
+	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Once().Return([]*tasq.Task{}, nil)
+	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 10).Return([]*tasq.Task{
 		successTestTask,
 		failTestTask,
 		failNoRequeueTestTask,
@@ -211,14 +209,14 @@ func (s *ConsumerTestSuite) TestConsumption() {
 
 	// Second try - registering task success fails
 	s.mockRepository.On("RegisterStart", ctx, successTestTask).Once().Return(successTestTask, nil)
-	s.mockRepository.On("RegisterFinish", ctx, successTestTask, model.StatusSuccessful).Once().Return(nil, errRepository)
+	s.mockRepository.On("RegisterFinish", ctx, successTestTask, tasq.StatusSuccessful).Once().Return(nil, errRepository)
 	assert.Panics(s.T(), func() {
 		(*successJob)()
 	})
 
 	// Third try - repository succeeds
 	s.mockRepository.On("RegisterStart", ctx, successTestTask).Once().Return(successTestTask, nil)
-	s.mockRepository.On("RegisterFinish", ctx, successTestTask, model.StatusSuccessful).Once().Return(successTestTask, nil)
+	s.mockRepository.On("RegisterFinish", ctx, successTestTask, tasq.StatusSuccessful).Once().Return(successTestTask, nil)
 	assert.NotPanics(s.T(), func() {
 		(*successJob)()
 	})
@@ -264,7 +262,7 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	// Second try - registering task failure fails
 	s.mockRepository.On("RegisterStart", ctx, failNoRequeueTestTask).Once().Return(failNoRequeueTestTask, nil)
 	s.mockRepository.On("RegisterError", ctx, failNoRequeueTestTask, errTaskFail).Once().Return(failNoRequeueTestTask, nil)
-	s.mockRepository.On("RegisterFinish", ctx, failNoRequeueTestTask, model.StatusFailed).Once().Return(nil, errRepository)
+	s.mockRepository.On("RegisterFinish", ctx, failNoRequeueTestTask, tasq.StatusFailed).Once().Return(nil, errRepository)
 	assert.Panics(s.T(), func() {
 		(*failNoRequeueJob)()
 	})
@@ -272,7 +270,7 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	// Third try - repository succeeds
 	s.mockRepository.On("RegisterStart", ctx, failNoRequeueTestTask).Once().Return(failNoRequeueTestTask, nil)
 	s.mockRepository.On("RegisterError", ctx, failNoRequeueTestTask, errTaskFail).Once().Return(failNoRequeueTestTask, nil)
-	s.mockRepository.On("RegisterFinish", ctx, failNoRequeueTestTask, model.StatusFailed).Once().Return(failNoRequeueTestTask, nil)
+	s.mockRepository.On("RegisterFinish", ctx, failNoRequeueTestTask, tasq.StatusFailed).Once().Return(failNoRequeueTestTask, nil)
 	assert.NotPanics(s.T(), func() {
 		(*failNoRequeueJob)()
 	})
@@ -297,9 +295,9 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 		WithQueues("testQueue").
 		WithAutoDeleteOnSuccess(true)
 
-	successTestTask, _ := model.NewTask("testTask", true, "testQueue", 100, 5)
+	successTestTask, _ := tasq.NewTask("testTask", true, "testQueue", 100, 5)
 
-	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
 	require.Nil(s.T(), err)
@@ -307,8 +305,8 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 	successTestTask.ReceiveCount++
 
 	// Getting tasks
-	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*model.Task{}, nil)
-	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 10).Return([]*model.Task{
+	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*tasq.Task{}, nil)
+	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 10).Return([]*tasq.Task{
 		successTestTask,
 	}, nil)
 
@@ -354,9 +352,9 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 		WithQueues("testQueue").
 		WithPollStrategy(tasq.PollStrategyByPriority)
 
-	successTestTask, _ := model.NewTask("testTask", true, "testQueue", 100, 5)
+	successTestTask, _ := tasq.NewTask("testTask", true, "testQueue", 100, 5)
 
-	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
 	require.Nil(s.T(), err)
@@ -364,8 +362,8 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 	successTestTask.ReceiveCount++
 
 	// Getting tasks
-	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*model.Task{}, nil)
-	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingPriorityFirst, 10).Return([]*model.Task{
+	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*tasq.Task{}, nil)
+	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingPriorityFirst, 10).Return([]*tasq.Task{
 		successTestTask,
 	}, nil)
 
@@ -379,7 +377,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 
 	// First try - repository succeeds
 	s.mockRepository.On("RegisterStart", ctx, successTestTask).Once().Return(successTestTask, nil)
-	s.mockRepository.On("RegisterFinish", ctx, successTestTask, model.StatusSuccessful).Once().Return(successTestTask, nil)
+	s.mockRepository.On("RegisterFinish", ctx, successTestTask, tasq.StatusSuccessful).Once().Return(successTestTask, nil)
 	assert.NotPanics(s.T(), func() {
 		(*successJob)()
 	})
@@ -405,7 +403,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithUnknownPollStrategy() {
 		WithPollStrategy(tasq.PollStrategy("pollByMagic"))
 
 	// Getting tasks
-	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*model.Task{}, nil)
+	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*tasq.Task{}, nil)
 
 	// Start up the consumer
 	err := s.tasqConsumer.Start(ctx)
@@ -430,16 +428,16 @@ func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 	s.tasqConsumer.
 		WithQueues("testQueue")
 
-	anotherTestTask, _ := model.NewTask("anotherTestTask", true, "testQueue", 100, 5)
+	anotherTestTask, _ := tasq.NewTask("anotherTestTask", true, "testQueue", 100, 5)
 
-	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
 	require.Nil(s.T(), err)
 
 	// Getting tasks
-	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*model.Task{}, nil)
-	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 10).Return([]*model.Task{
+	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*tasq.Task{}, nil)
+	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 10).Return([]*tasq.Task{
 		anotherTestTask,
 	}, nil)
 
@@ -447,7 +445,7 @@ func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 	err = s.tasqConsumer.Start(ctx)
 	assert.Nil(s.T(), err)
 
-	s.mockRepository.On("RegisterFinish", ctx, anotherTestTask, model.StatusFailed).Return(anotherTestTask, nil)
+	s.mockRepository.On("RegisterFinish", ctx, anotherTestTask, tasq.StatusFailed).Return(anotherTestTask, nil)
 
 	// Stop the consumer
 	err = s.tasqConsumer.Stop()
@@ -475,14 +473,14 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 		testTaskID1 = uuid.MustParse("1ada263f-61d5-44ac-b99d-2d5ad4f249de")
 		testTaskID2 = uuid.MustParse("28032675-bc13-4dcd-8ec6-6aa430fc466a")
 
-		testTasks = map[uuid.UUID]*model.Task{
+		testTasks = map[uuid.UUID]*tasq.Task{
 			testTaskID1: {
 				ID:           testTaskID1,
 				Type:         "testTask",
 				Args:         []uint8{0x3, 0x2, 0x0, 0x1},
 				Queue:        "testQueue",
 				Priority:     100,
-				Status:       model.StatusNew,
+				Status:       tasq.StatusNew,
 				ReceiveCount: 0,
 				MaxReceives:  5,
 				CreatedAt:    s.mockClock.Now(),
@@ -494,7 +492,7 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 				Args:         []uint8{0x3, 0x2, 0x0, 0x1},
 				Queue:        "testQueue",
 				Priority:     100,
-				Status:       model.StatusNew,
+				Status:       tasq.StatusNew,
 				ReceiveCount: 0,
 				MaxReceives:  5,
 				CreatedAt:    s.mockClock.Now(),
@@ -503,7 +501,7 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 		}
 	)
 
-	err := s.tasqConsumer.Learn("testTask", func(task *model.Task) error {
+	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
 	require.Nil(s.T(), err)
@@ -517,7 +515,7 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 		taskIDs, ok := args[1].([]uuid.UUID)
 		require.True(s.T(), ok)
 
-		returnTasks := make([]*model.Task, 0, len(inputTestIDs))
+		returnTasks := make([]*tasq.Task, 0, len(inputTestIDs))
 
 		for _, taskID := range taskIDs {
 			returnTask, ok := testTasks[taskID]
@@ -531,14 +529,14 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 
 	// Respond to polls
 	// First call
-	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1).Once().
-		Return([]*model.Task{
+	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1).Once().
+		Return([]*tasq.Task{
 			testTasks[testTaskID1],
 		}, nil)
 
 	// Second call
-	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1).Once().
-		Return([]*model.Task{
+	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1).Once().
+		Return([]*tasq.Task{
 			testTasks[testTaskID2],
 		}, nil)
 
@@ -555,12 +553,12 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 	// Mock job handling
 	s.mockRepository.On("RegisterStart", ctx, testTasks[testTaskID1]).Once().
 		Return(testTasks[testTaskID1], nil)
-	s.mockRepository.On("RegisterFinish", ctx, testTasks[testTaskID1], model.StatusSuccessful).Once().
+	s.mockRepository.On("RegisterFinish", ctx, testTasks[testTaskID1], tasq.StatusSuccessful).Once().
 		Return(testTasks[testTaskID1], nil)
 
 	s.mockRepository.On("RegisterStart", ctx, testTasks[testTaskID2]).Once().
 		Return(testTasks[testTaskID2], nil)
-	s.mockRepository.On("RegisterFinish", ctx, testTasks[testTaskID2], model.StatusSuccessful).Once().
+	s.mockRepository.On("RegisterFinish", ctx, testTasks[testTaskID2], tasq.StatusSuccessful).Once().
 		Return(testTasks[testTaskID2], nil)
 
 	// Drain channel of jobs

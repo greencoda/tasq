@@ -11,10 +11,9 @@ import (
 
 	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/pkg/model"
-	"github.com/greencoda/tasq/pkg/repository"
 )
 
+// Collection of consumer errors.
 var (
 	ErrConsumerAlreadyRunning    = errors.New("consumer has already been started")
 	ErrConsumerAlreadyStopped    = errors.New("consumer has already been stopped")
@@ -32,26 +31,30 @@ type Logger interface {
 	Printf(format string, v ...any)
 }
 
-type handlerFunc func(task *model.Task) error
+type handlerFunc func(task *Task) error
 
 type handlerFuncMap map[string]handlerFunc
 
 // PollStrategy is the label assigned to the ordering by which tasks are polled for consumption.
 type PollStrategy string
 
+// Collection of pollStrategies.
 const (
-	PollStrategyByCreatedAt    PollStrategy = "pollByCreatedAt" // Poll by oldest tasks first
-	PollStrategyByPriority     PollStrategy = "pollByPriority"  // Poll by highest priority task first
-	defaultChannelSize                      = 10
-	defaultPollInterval                     = 5 * time.Second
-	defaultPollStrategy                     = PollStrategyByCreatedAt
-	defaultPollLimit                        = 10
-	defaultAutoDeleteOnSuccess              = false
-	defaultMaxActiveTasks                   = 10
-	defaultVisibilityTimeout                = 15 * time.Second
+	PollStrategyByCreatedAt PollStrategy = "pollByCreatedAt" // Poll by oldest tasks first
+	PollStrategyByPriority  PollStrategy = "pollByPriority"  // Poll by highest priority task first
 )
 
-// NoopLoggerdiscards the log messages written to it.
+const (
+	defaultChannelSize         = 10
+	defaultPollInterval        = 5 * time.Second
+	defaultPollStrategy        = PollStrategyByCreatedAt
+	defaultPollLimit           = 10
+	defaultAutoDeleteOnSuccess = false
+	defaultMaxActiveTasks      = 10
+	defaultVisibilityTimeout   = 15 * time.Second
+)
+
+// NoopLogger discards the log messages written to it.
 func NoopLogger() *log.Logger {
 	return log.New(io.Discard, "", 0)
 }
@@ -84,7 +87,7 @@ type Consumer struct {
 	stop chan struct{}
 }
 
-// NewCleaner creates a new consumer with a reference to the original tasq client
+// NewConsumer creates a new consumer with a reference to the original tasq client
 // and default consumer parameters.
 func (c *Client) NewConsumer() *Consumer {
 	return &Consumer{
@@ -271,14 +274,14 @@ func (c *Consumer) setRunning(isRunning bool) {
 	c.running = isRunning
 }
 
-func (c *Consumer) registerTaskStart(ctx context.Context, task *model.Task) {
+func (c *Consumer) registerTaskStart(ctx context.Context, task *Task) {
 	_, err := c.client.repository.RegisterStart(ctx, task)
 	if err != nil {
 		panic(err)
 	}
 }
 
-func (c *Consumer) registerTaskError(ctx context.Context, task *model.Task, taskError error) {
+func (c *Consumer) registerTaskError(ctx context.Context, task *Task, taskError error) {
 	_, err := c.client.repository.RegisterError(ctx, task, taskError)
 	if err != nil {
 		panic(err)
@@ -291,14 +294,14 @@ func (c *Consumer) registerTaskError(ctx context.Context, task *model.Task, task
 	}
 }
 
-func (c *Consumer) registerTaskSuccess(ctx context.Context, task *model.Task) {
+func (c *Consumer) registerTaskSuccess(ctx context.Context, task *Task) {
 	if c.autoDeleteOnSuccess {
 		err := c.client.repository.DeleteTask(ctx, task)
 		if err != nil {
 			panic(err)
 		}
 	} else {
-		_, err := c.client.repository.RegisterFinish(ctx, task, model.StatusSuccessful)
+		_, err := c.client.repository.RegisterFinish(ctx, task, StatusSuccessful)
 		if err != nil {
 			panic(err)
 		}
@@ -307,8 +310,8 @@ func (c *Consumer) registerTaskSuccess(ctx context.Context, task *model.Task) {
 	c.removeFromActiveTasks(task)
 }
 
-func (c *Consumer) registerTaskFail(ctx context.Context, task *model.Task) {
-	_, err := c.client.repository.RegisterFinish(ctx, task, model.StatusFailed)
+func (c *Consumer) registerTaskFail(ctx context.Context, task *Task) {
+	_, err := c.client.repository.RegisterFinish(ctx, task, StatusFailed)
 	if err != nil {
 		panic(err)
 	}
@@ -316,7 +319,7 @@ func (c *Consumer) registerTaskFail(ctx context.Context, task *model.Task) {
 	c.removeFromActiveTasks(task)
 }
 
-func (c *Consumer) requeueTask(ctx context.Context, task *model.Task) {
+func (c *Consumer) requeueTask(ctx context.Context, task *Task) {
 	_, err := c.client.repository.RequeueTask(ctx, task)
 	if err != nil {
 		panic(err)
@@ -329,7 +332,7 @@ func (c *Consumer) getActiveTaskCount() int {
 	return len(c.activeTasks)
 }
 
-func (c *Consumer) removeFromActiveTasks(task *model.Task) {
+func (c *Consumer) removeFromActiveTasks(task *Task) {
 	delete(c.activeTasks, task.ID)
 }
 
@@ -353,12 +356,12 @@ func (c *Consumer) getKnownTaskTypes() []string {
 	return taskTypes
 }
 
-func (c *Consumer) getPollOrdering() (repository.Ordering, error) {
+func (c *Consumer) getPollOrdering() (Ordering, error) {
 	switch c.pollStrategy {
 	case PollStrategyByCreatedAt:
-		return repository.OrderingCreatedAtFirst, nil
+		return OrderingCreatedAtFirst, nil
 	case PollStrategyByPriority:
-		return repository.OrderingPriorityFirst, nil
+		return OrderingPriorityFirst, nil
 	default:
 		return -1, fmt.Errorf("%w: %s", ErrUnknownPollStrategy, c.pollStrategy)
 	}
@@ -414,7 +417,7 @@ func (c *Consumer) processLoop(ctx context.Context, ticker *clock.Ticker) {
 	}
 }
 
-func (c *Consumer) pollForTasks(ctx context.Context) ([]*model.Task, error) {
+func (c *Consumer) pollForTasks(ctx context.Context) ([]*Task, error) {
 	pollOrdering, err := c.getPollOrdering()
 	if err != nil {
 		return nil, err
@@ -429,7 +432,7 @@ func (c *Consumer) pingActiveTasks(ctx context.Context) error {
 	return err
 }
 
-func (c *Consumer) activateTasks(ctx context.Context, tasks []*model.Task) error {
+func (c *Consumer) activateTasks(ctx context.Context, tasks []*Task) error {
 	var errors []error
 
 	for _, task := range tasks {
@@ -448,7 +451,7 @@ func (c *Consumer) activateTasks(ctx context.Context, tasks []*model.Task) error
 	return nil
 }
 
-func (c *Consumer) activateTask(ctx context.Context, task *model.Task) error {
+func (c *Consumer) activateTask(ctx context.Context, task *Task) error {
 	job, err := c.createJobFromTask(ctx, task)
 	if err != nil {
 		return err
@@ -461,7 +464,7 @@ func (c *Consumer) activateTask(ctx context.Context, task *model.Task) error {
 	return nil
 }
 
-func (c *Consumer) createJobFromTask(ctx context.Context, task *model.Task) (*func(), error) {
+func (c *Consumer) createJobFromTask(ctx context.Context, task *Task) (*func(), error) {
 	if handlerFunc, ok := c.handlerFuncMap[task.Type]; ok {
 		return c.newJob(ctx, c, handlerFunc, task), nil
 	}
@@ -469,7 +472,7 @@ func (c *Consumer) createJobFromTask(ctx context.Context, task *model.Task) (*fu
 	return nil, fmt.Errorf("%w: %s", ErrTaskTypeNotKnown, task.Type)
 }
 
-func (c *Consumer) newJob(ctx context.Context, consumer *Consumer, f handlerFunc, task *model.Task) *func() {
+func (c *Consumer) newJob(ctx context.Context, consumer *Consumer, f handlerFunc, task *Task) *func() {
 	job := func() {
 		consumer.registerTaskStart(ctx, task)
 

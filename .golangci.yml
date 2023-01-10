@@ -6,20 +6,15 @@ run:
   modules-download-mode: readonly
 
 linters:
-  enable:
-    - containedctx
-    - errcheck
-    - errname
-    - gocritic
-    - gofumpt
-    - gosimple
-    - govet
-    - ineffassign
-    - reassign
-    - staticcheck
-    - typecheck
-    - unused
-    - wsl
+  enable-all: true
+  disable:
+  - dupl
+  - funlen
+  - gochecknoglobals
+  - lll
+  - revive
+  - varnamelen
+  - wrapcheck
 
 issues:
   exclude-use-default: false

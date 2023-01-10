@@ -4,14 +4,14 @@ import (
 	"testing"
 
 	"github.com/greencoda/tasq"
-	mockrepository "github.com/greencoda/tasq/pkg/mocks/repository"
+	"github.com/greencoda/tasq/mocks"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestNewClient(t *testing.T) {
 	t.Parallel()
 
-	repository := mockrepository.NewIRepository(t)
+	repository := mocks.NewIRepository(t)
 
 	tasqClient := tasq.NewClient(repository)
 	assert.NotNil(t, tasqClient)

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/pkg/model"
+	"github.com/greencoda/tasq"
 )
 
 const (
@@ -21,8 +21,11 @@ var (
 	errUnableToScan    = errors.New("Scan: unable to scan type into MySQLTaskID")
 )
 
+// TaskID represents the types used to manage conversion of UUID
+// to MySQL's binary(16) format.
 type TaskID [idLength]byte
 
+// Scan implements sql.Scanner so TaskIDs can be read from MySQL transparently.
 func (i *TaskID) Scan(src any) error {
 	switch src := src.(type) {
 	case nil:
@@ -44,27 +47,29 @@ func (i *TaskID) Scan(src any) error {
 	return nil
 }
 
+// Value implements sql.Valuer so that TaskIDs can be written to MySQL
+// transparently.
 func (i TaskID) Value() (driver.Value, error) {
 	return i[:], nil
 }
 
 type mySQLTask struct {
-	ID           TaskID           `db:"id"`
-	Type         string           `db:"type"`
-	Args         []byte           `db:"args"`
-	Queue        string           `db:"queue"`
-	Priority     int16            `db:"priority"`
-	Status       model.TaskStatus `db:"status"`
-	ReceiveCount int32            `db:"receive_count"`
-	MaxReceives  int32            `db:"max_receives"`
-	LastError    sql.NullString   `db:"last_error"`
-	CreatedAt    string           `db:"created_at"`
-	StartedAt    sql.NullString   `db:"started_at"`
-	FinishedAt   sql.NullString   `db:"finished_at"`
-	VisibleAt    string           `db:"visible_at"`
+	ID           TaskID          `db:"id"`
+	Type         string          `db:"type"`
+	Args         []byte          `db:"args"`
+	Queue        string          `db:"queue"`
+	Priority     int16           `db:"priority"`
+	Status       tasq.TaskStatus `db:"status"`
+	ReceiveCount int32           `db:"receive_count"`
+	MaxReceives  int32           `db:"max_receives"`
+	LastError    sql.NullString  `db:"last_error"`
+	CreatedAt    string          `db:"created_at"`
+	StartedAt    sql.NullString  `db:"started_at"`
+	FinishedAt   sql.NullString  `db:"finished_at"`
+	VisibleAt    string          `db:"visible_at"`
 }
 
-func newFromTask(task *model.Task) *mySQLTask {
+func newFromTask(task *tasq.Task) *mySQLTask {
 	return &mySQLTask{
 		ID:           TaskID(task.ID),
 		Type:         task.Type,
@@ -82,8 +87,8 @@ func newFromTask(task *model.Task) *mySQLTask {
 	}
 }
 
-func (t *mySQLTask) toTask() *model.Task {
-	return &model.Task{
+func (t *mySQLTask) toTask() *tasq.Task {
+	return &tasq.Task{
 		ID:           uuid.UUID(t.ID),
 		Type:         t.Type,
 		Args:         t.Args,
@@ -100,8 +105,8 @@ func (t *mySQLTask) toTask() *model.Task {
 	}
 }
 
-func mySQLTasksToTasks(mySQLTasks []*mySQLTask) []*model.Task {
-	tasks := make([]*model.Task, len(mySQLTasks))
+func mySQLTasksToTasks(mySQLTasks []*mySQLTask) []*tasq.Task {
+	tasks := make([]*tasq.Task, len(mySQLTasks))
 
 	for i, mySQLTask := range mySQLTasks {
 		tasks[i] = mySQLTask.toTask()

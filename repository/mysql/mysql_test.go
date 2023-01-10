@@ -11,9 +11,8 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/pkg/model"
-	"github.com/greencoda/tasq/pkg/repository"
-	"github.com/greencoda/tasq/pkg/repository/mysql"
+	"github.com/greencoda/tasq"
+	"github.com/greencoda/tasq/repository/mysql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -42,9 +41,9 @@ var (
 	errTask    = errors.New("task error")
 )
 
-func getStartedTestTask() *model.Task {
+func getStartedTestTask() *tasq.Task {
 	var (
-		testTask, _ = model.NewTask("testTask", true, "testQueue", 100, 5)
+		testTask, _ = tasq.NewTask("testTask", true, "testQueue", 100, 5)
 		startTime   = testTask.CreatedAt.Add(time.Second)
 	)
 
@@ -57,7 +56,7 @@ type MySQLTestSuite struct {
 	suite.Suite
 	db               *sql.DB
 	sqlMock          sqlmock.Sqlmock
-	mockedRepository repository.IRepository
+	mockedRepository tasq.IRepository
 }
 
 func TestTaskTestSuite(t *testing.T) {
@@ -220,14 +219,14 @@ func (s *MySQLTestSuite) TestPollTasks() {
 	)
 
 	// polling with 0 limit
-	tasks, err := s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 0)
+	tasks, err := s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 0)
 	assert.Len(s.T(), tasks, 0)
 	assert.Nil(s.T(), err)
 
 	// beginning the transaction fails
 	s.sqlMock.ExpectBegin().WillReturnError(errSQL)
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 0)
 	assert.NotNil(s.T(), err)
 
@@ -236,7 +235,7 @@ func (s *MySQLTestSuite) TestPollTasks() {
 	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnError(errSQL)
 	s.sqlMock.ExpectRollback()
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 0)
 	assert.NotNil(s.T(), err)
 
@@ -245,7 +244,7 @@ func (s *MySQLTestSuite) TestPollTasks() {
 	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	s.sqlMock.ExpectRollback()
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 0)
 	assert.Nil(s.T(), err)
 
@@ -255,7 +254,7 @@ func (s *MySQLTestSuite) TestPollTasks() {
 	s.sqlMock.ExpectExec(updateMockRegexp).WillReturnError(errSQL)
 	s.sqlMock.ExpectRollback()
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 0)
 	assert.NotNil(s.T(), err)
 
@@ -266,7 +265,7 @@ func (s *MySQLTestSuite) TestPollTasks() {
 	s.sqlMock.ExpectQuery(selectUpdatedMockRegexp).WillReturnError(errSQL)
 	s.sqlMock.ExpectRollback()
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 0)
 	assert.NotNil(s.T(), err)
 
@@ -277,7 +276,7 @@ func (s *MySQLTestSuite) TestPollTasks() {
 	s.sqlMock.ExpectQuery(selectUpdatedMockRegexp).WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 	s.sqlMock.ExpectCommit().WillReturnError(errSQL)
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 0)
 	assert.NotNil(s.T(), err)
 
@@ -288,7 +287,7 @@ func (s *MySQLTestSuite) TestPollTasks() {
 	s.sqlMock.ExpectQuery(selectUpdatedMockRegexp).WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 	s.sqlMock.ExpectCommit()
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 1)
 	assert.Nil(s.T(), err)
 
@@ -498,7 +497,7 @@ func (s *MySQLTestSuite) TestRegisterFinish() {
 	// beginning the transaction fails
 	s.sqlMock.ExpectBegin().WillReturnError(errSQL)
 
-	task, err := s.mockedRepository.RegisterFinish(ctx, testTask, model.StatusSuccessful)
+	task, err := s.mockedRepository.RegisterFinish(ctx, testTask, tasq.StatusSuccessful)
 	assert.Empty(s.T(), task)
 	assert.NotNil(s.T(), err)
 
@@ -507,7 +506,7 @@ func (s *MySQLTestSuite) TestRegisterFinish() {
 	s.sqlMock.ExpectExec(updateMockRegexp).WillReturnError(errSQL)
 	s.sqlMock.ExpectRollback()
 
-	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, model.StatusSuccessful)
+	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, tasq.StatusSuccessful)
 	assert.Empty(s.T(), task)
 	assert.NotNil(s.T(), err)
 
@@ -517,7 +516,7 @@ func (s *MySQLTestSuite) TestRegisterFinish() {
 	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnError(errSQL)
 	s.sqlMock.ExpectRollback()
 
-	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, model.StatusSuccessful)
+	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, tasq.StatusSuccessful)
 	assert.Empty(s.T(), task)
 	assert.NotNil(s.T(), err)
 
@@ -527,7 +526,7 @@ func (s *MySQLTestSuite) TestRegisterFinish() {
 	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnRows(sqlmock.NewRows(taskColumns))
 	s.sqlMock.ExpectRollback()
 
-	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, model.StatusSuccessful)
+	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, tasq.StatusSuccessful)
 	assert.Empty(s.T(), task)
 	assert.NotNil(s.T(), err)
 
@@ -537,7 +536,7 @@ func (s *MySQLTestSuite) TestRegisterFinish() {
 	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 	s.sqlMock.ExpectCommit().WillReturnError(errSQL)
 
-	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, model.StatusSuccessful)
+	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, tasq.StatusSuccessful)
 	assert.Empty(s.T(), task)
 	assert.NotNil(s.T(), err)
 
@@ -547,7 +546,7 @@ func (s *MySQLTestSuite) TestRegisterFinish() {
 	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 	s.sqlMock.ExpectCommit()
 
-	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, model.StatusSuccessful)
+	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, tasq.StatusSuccessful)
 	assert.NotEmpty(s.T(), task)
 	assert.Nil(s.T(), err)
 }
@@ -742,5 +741,25 @@ func (s *MySQLTestSuite) TestGetQueryWithTableName() {
 		})
 		assert.Equal(s.T(), "SELECT * FROM test_tasks WHERE id = ?", query)
 		assert.Contains(s.T(), args, taskUUIDBytes)
+	})
+}
+
+func (s *MySQLTestSuite) TestInterpolateSQL() {
+	params := map[string]any{"tableName": "test_table"}
+
+	// Interpolate SQL successfully
+	interpolatedSQL := mysql.InterpolateSQL("SELECT * FROM {{.tableName}}", params)
+	assert.Equal(s.T(), "SELECT * FROM test_table", interpolatedSQL)
+
+	// Fail interpolaing unparseable SQL template
+	assert.Panics(s.T(), func() {
+		unparseableTemplateSQL := mysql.InterpolateSQL("SELECT * FROM {{.tableName", params)
+		assert.Empty(s.T(), unparseableTemplateSQL)
+	})
+
+	// Fail interpolaing unexecutable SQL template
+	assert.Panics(s.T(), func() {
+		unexecutableTemplateSQL := mysql.InterpolateSQL(`SELECT * FROM {{if .tableName eq 1}} {{end}} {{.tableName}}`, params)
+		assert.Empty(s.T(), unexecutableTemplateSQL)
 	})
 }

@@ -5,8 +5,7 @@ import (
 	"testing"
 
 	"github.com/greencoda/tasq"
-	mockrepository "github.com/greencoda/tasq/pkg/mocks/repository"
-	"github.com/greencoda/tasq/pkg/model"
+	"github.com/greencoda/tasq/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -17,7 +16,7 @@ var ctx = context.Background()
 
 type ProducterTestSuite struct {
 	suite.Suite
-	mockRepository *mockrepository.IRepository
+	mockRepository *mocks.IRepository
 	tasqClient     *tasq.Client
 	tasqProducer   *tasq.Producer
 }
@@ -29,7 +28,7 @@ func TestProducterTestSuite(t *testing.T) {
 }
 
 func (s *ProducterTestSuite) SetupTest() {
-	s.mockRepository = mockrepository.NewIRepository(s.T())
+	s.mockRepository = mocks.NewIRepository(s.T())
 
 	s.tasqClient = tasq.NewClient(s.mockRepository)
 	require.NotNil(s.T(), s.tasqClient)
@@ -44,30 +43,30 @@ func (s *ProducterTestSuite) TestNewProducer() {
 func (s *ProducterTestSuite) TestSubmitSuccessful() {
 	var (
 		testArgs    = "testData"
-		testTask, _ = model.NewTask("testTask", testArgs, "testQueue", 100, 5)
+		testTask, _ = tasq.NewTask("testTask", testArgs, "testQueue", 100, 5)
 	)
 
-	s.mockRepository.On("SubmitTask", ctx, mock.AnythingOfType("*model.Task")).Return(testTask, nil)
+	s.mockRepository.On("SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")).Return(testTask, nil)
 
 	task, err := s.tasqProducer.Submit(ctx, testTask.Type, testArgs, testTask.Queue, testTask.Priority, testTask.MaxReceives)
 
 	assert.NotNil(s.T(), task)
-	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*model.Task")))
+	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")))
 	assert.Nil(s.T(), err)
 }
 
 func (s *ProducterTestSuite) TestSubmitUnsuccessful() {
 	var (
 		testArgs    = "testData"
-		testTask, _ = model.NewTask("testTask", testArgs, "testQueue", 100, 5)
+		testTask, _ = tasq.NewTask("testTask", testArgs, "testQueue", 100, 5)
 	)
 
-	s.mockRepository.On("SubmitTask", ctx, mock.AnythingOfType("*model.Task")).Return(nil, errRepository)
+	s.mockRepository.On("SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")).Return(nil, errRepository)
 
 	task, err := s.tasqProducer.Submit(ctx, testTask.Type, testArgs, testTask.Queue, testTask.Priority, testTask.MaxReceives)
 
 	assert.Nil(s.T(), task)
-	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*model.Task")))
+	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")))
 	assert.NotNil(s.T(), err)
 }
 

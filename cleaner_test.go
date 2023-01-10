@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/greencoda/tasq"
-	mockrepository "github.com/greencoda/tasq/pkg/mocks/repository"
+	"github.com/greencoda/tasq/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -14,7 +14,7 @@ import (
 
 type CleanerTestSuite struct {
 	suite.Suite
-	mockRepository *mockrepository.IRepository
+	mockRepository *mocks.IRepository
 	tasqClient     *tasq.Client
 	tasqCleaner    *tasq.Cleaner
 }
@@ -26,7 +26,7 @@ func TestCleanerTestSuite(t *testing.T) {
 }
 
 func (s *CleanerTestSuite) SetupTest() {
-	s.mockRepository = mockrepository.NewIRepository(s.T())
+	s.mockRepository = mocks.NewIRepository(s.T())
 
 	s.tasqClient = tasq.NewClient(s.mockRepository)
 	require.NotNil(s.T(), s.tasqClient)

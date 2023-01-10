@@ -3,10 +3,10 @@ package mysql
 import (
 	"database/sql/driver"
 
-	"github.com/greencoda/tasq/pkg/model"
+	"github.com/greencoda/tasq"
 )
 
-func GetTestTaskValues(task *model.Task) []driver.Value {
+func GetTestTaskValues(task *tasq.Task) []driver.Value {
 	testMySQLTask := newFromTask(task)
 
 	return []driver.Value{
@@ -24,6 +24,10 @@ func GetTestTaskValues(task *model.Task) []driver.Value {
 		testMySQLTask.FinishedAt,
 		testMySQLTask.VisibleAt,
 	}
+}
+
+func InterpolateSQL(sql string, params map[string]any) string {
+	return interpolateSQL(sql, params)
 }
 
 func (d *Repository) GetQueryWithTableName(sqlTemplate string, args ...any) (string, []any) {

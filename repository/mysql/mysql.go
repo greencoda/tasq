@@ -1,17 +1,19 @@
+// Package mysql provides the implementation of a tasq repository in MySQL
 package mysql
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"text/template"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql" // import mysql driver
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/pkg/model"
-	"github.com/greencoda/tasq/pkg/repository"
+	"github.com/greencoda/tasq"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -19,11 +21,13 @@ const driverName = "mysql"
 
 var errUnexpectedDataSourceType = errors.New("unexpected dataSource type")
 
+// Repository implements the menthods necessary for tasq to work in MySQL.
 type Repository struct {
 	db        *sqlx.DB
 	tableName string
 }
 
+// NewRepository creates a new MySQL Repository instance.
 func NewRepository(dataSource any, prefix string) (*Repository, error) {
 	switch d := dataSource.(type) {
 	case string:
@@ -56,6 +60,7 @@ func newRepositoryFromDB(db *sql.DB, prefix string) (*Repository, error) {
 	}, nil
 }
 
+// Migrate prepares the database by adding the tasks table.
 func (d *Repository) Migrate(ctx context.Context) error {
 	if err := d.migrateTable(ctx); err != nil {
 		return err
@@ -64,9 +69,11 @@ func (d *Repository) Migrate(ctx context.Context) error {
 	return nil
 }
 
-func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibilityTimeout time.Duration) ([]*model.Task, error) {
+// PingTasks pings a list of tasks by their ID
+// and extends their invisibility timestamp with the supplied timeout parameter.
+func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibilityTimeout time.Duration) ([]*tasq.Task, error) {
 	if len(taskIDs) == 0 {
-		return []*model.Task{}, nil
+		return []*tasq.Task{}, nil
 	}
 
 	const (
@@ -86,7 +93,7 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return []*model.Task{}, fmt.Errorf("failed to begin transaction for PingTasks: %w", err)
+		return []*tasq.Task{}, fmt.Errorf("failed to begin transaction for PingTasks: %w", err)
 	}
 
 	defer rollback(tx)
@@ -101,7 +108,7 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 
 	_, err = tx.ExecContext(ctx, updatePingedTasksQuery, updatePingedTasksArgs...)
 	if err != nil {
-		return []*model.Task{}, fmt.Errorf("failed to execute query for PingTasks: %w", err)
+		return []*tasq.Task{}, fmt.Errorf("failed to execute query for PingTasks: %w", err)
 	}
 
 	var (
@@ -113,20 +120,22 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 
 	err = tx.SelectContext(ctx, &pingedMySQLTasks, selectPingedTasksQuery, selectPingedTasksArgs...)
 	if err != nil {
-		return []*model.Task{}, err
+		return []*tasq.Task{}, err
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return []*model.Task{}, err
+		return []*tasq.Task{}, err
 	}
 
 	return mySQLTasksToTasks(pingedMySQLTasks), nil
 }
 
-func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering repository.Ordering, pollLimit int) ([]*model.Task, error) {
+// PollTasks polls for available tasks matching supplied the parameters
+// and sets their invisibility the supplied timeout parameter to the future.
+func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering tasq.Ordering, pollLimit int) ([]*tasq.Task, error) {
 	if pollLimit == 0 {
-		return []*model.Task{}, nil
+		return []*tasq.Task{}, nil
 	}
 
 	const (
@@ -161,7 +170,7 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return []*model.Task{}, err
+		return []*tasq.Task{}, err
 	}
 
 	defer rollback(tx)
@@ -172,7 +181,7 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 		selectPolledTasksQuery, selectPolledTasksArgs = d.getQueryWithTableName(selectPolledTasksSQLTemplate, map[string]any{
 			"pollTypes":    types,
 			"pollQueues":   queues,
-			"pollStatuses": model.GetTaskStatuses(model.OpenTasks),
+			"pollStatuses": tasq.GetTaskStatuses(tasq.OpenTasks),
 			"pollTime":     timeToString(pollTime),
 			"pollOrdering": getOrderingDirectives(ordering),
 			"pollLimit":    pollLimit,
@@ -181,22 +190,22 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 
 	err = tx.SelectContext(ctx, &polledTaskIDs, selectPolledTasksQuery, selectPolledTasksArgs...)
 	if err != nil {
-		return []*model.Task{}, err
+		return []*tasq.Task{}, err
 	}
 
 	if len(polledTaskIDs) == 0 {
-		return []*model.Task{}, nil
+		return []*tasq.Task{}, nil
 	}
 
 	updatePolledTasksQuery, updatePolledTasksArgs := d.getQueryWithTableName(updatePolledTasksSQLTemplate, map[string]any{
-		"status":        model.StatusEnqueued,
+		"status":        tasq.StatusEnqueued,
 		"visibleAt":     timeToString(pollTime.Add(visibilityTimeout)),
 		"polledTaskIDs": polledTaskIDs,
 	})
 
 	_, err = tx.ExecContext(ctx, updatePolledTasksQuery, updatePolledTasksArgs...)
 	if err != nil {
-		return []*model.Task{}, err
+		return []*tasq.Task{}, err
 	}
 
 	var (
@@ -208,17 +217,19 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 
 	err = tx.SelectContext(ctx, &polledMySQLTasks, selectUpdatedTasksQuery, selectUpdatedTasksArgs...)
 	if err != nil {
-		return []*model.Task{}, err
+		return []*tasq.Task{}, err
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return []*model.Task{}, err
+		return []*tasq.Task{}, err
 	}
 
 	return mySQLTasksToTasks(polledMySQLTasks), nil
 }
 
+// CleanTasks removes finished tasks from the queue
+// if their creation date is past the supplied duration.
 func (d *Repository) CleanTasks(ctx context.Context, cleanAge time.Duration) (int64, error) {
 	const cleanTasksSQLTemplate = `DELETE FROM
 			{{.tableName}}
@@ -229,7 +240,7 @@ func (d *Repository) CleanTasks(ctx context.Context, cleanAge time.Duration) (in
 	var (
 		cleanTime                       = time.Now()
 		cleanTasksQuery, cleanTasksArgs = d.getQueryWithTableName(cleanTasksSQLTemplate, map[string]any{
-			"statuses": model.GetTaskStatuses(model.FinishedTasks),
+			"statuses": tasq.GetTaskStatuses(tasq.FinishedTasks),
 			"cleanAt":  timeToString(cleanTime.Add(-cleanAge)),
 		})
 	)
@@ -247,7 +258,9 @@ func (d *Repository) CleanTasks(ctx context.Context, cleanAge time.Duration) (in
 	return rowsAffected, nil
 }
 
-func (d *Repository) RegisterStart(ctx context.Context, task *model.Task) (*model.Task, error) {
+// RegisterStart marks a task as started with the 'in progress' status
+// and records the time of start.
+func (d *Repository) RegisterStart(ctx context.Context, task *tasq.Task) (*tasq.Task, error) {
 	const (
 		updateTaskSQLTemplate = `UPDATE 
 				{{.tableName}} 
@@ -274,7 +287,7 @@ func (d *Repository) RegisterStart(ctx context.Context, task *model.Task) (*mode
 		mySQLTask                       = newFromTask(task)
 		startTime                       = time.Now()
 		updateTaskQuery, updateTaskArgs = d.getQueryWithTableName(updateTaskSQLTemplate, map[string]any{
-			"status":    model.StatusInProgress,
+			"status":    tasq.StatusInProgress,
 			"startTime": timeToString(startTime),
 			"taskID":    mySQLTask.ID,
 		})
@@ -303,7 +316,8 @@ func (d *Repository) RegisterStart(ctx context.Context, task *model.Task) (*mode
 	return mySQLTask.toTask(), nil
 }
 
-func (d *Repository) RegisterError(ctx context.Context, task *model.Task, errTask error) (*model.Task, error) {
+// RegisterError records an error message on the task as last error.
+func (d *Repository) RegisterError(ctx context.Context, task *tasq.Task, errTask error) (*tasq.Task, error) {
 	const (
 		updateTaskSQLTemplate = `UPDATE 
 				{{.tableName}} 
@@ -356,7 +370,9 @@ func (d *Repository) RegisterError(ctx context.Context, task *model.Task, errTas
 	return mySQLTask.toTask(), nil
 }
 
-func (d *Repository) RegisterFinish(ctx context.Context, task *model.Task, finishStatus model.TaskStatus) (*model.Task, error) {
+// RegisterFinish marks a task as finished with the supplied status
+// and records the time of finish.
+func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finishStatus tasq.TaskStatus) (*tasq.Task, error) {
 	const (
 		updateTaskSQLTemplate = `UPDATE 
 				{{.tableName}} 
@@ -412,7 +428,8 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *model.Task, finis
 	return mySQLTask.toTask(), nil
 }
 
-func (d *Repository) SubmitTask(ctx context.Context, task *model.Task) (*model.Task, error) {
+// SubmitTask adds the supplied task to the queue.
+func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Task, error) {
 	const (
 		insertTaskSQLTemplate = `INSERT INTO 
 				{{.tableName}} 
@@ -470,7 +487,8 @@ func (d *Repository) SubmitTask(ctx context.Context, task *model.Task) (*model.T
 	return mySQLTask.toTask(), nil
 }
 
-func (d *Repository) DeleteTask(ctx context.Context, task *model.Task) error {
+// DeleteTask removes the supplied task from the queue.
+func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task) error {
 	const deleteTaskSQLTemplate = `DELETE 
 		FROM 
 			{{.tableName}}
@@ -489,7 +507,8 @@ func (d *Repository) DeleteTask(ctx context.Context, task *model.Task) error {
 	return err
 }
 
-func (d *Repository) RequeueTask(ctx context.Context, task *model.Task) (*model.Task, error) {
+// RequeueTask marks a task as new, so it can be picked up again.
+func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Task, error) {
 	const (
 		updateTaskSQLTemplate = `UPDATE 
 				{{.tableName}} 
@@ -514,7 +533,7 @@ func (d *Repository) RequeueTask(ctx context.Context, task *model.Task) (*model.
 	var (
 		mySQLTask                       = newFromTask(task)
 		updateTaskQuery, updateTaskArgs = d.getQueryWithTableName(updateTaskSQLTemplate, map[string]any{
-			"status": model.StatusNew,
+			"status": tasq.StatusNew,
 			"taskID": mySQLTask.ID,
 		})
 	)
@@ -543,7 +562,7 @@ func (d *Repository) RequeueTask(ctx context.Context, task *model.Task) (*model.
 }
 
 func (d *Repository) getQueryWithTableName(sqlTemplate string, args ...any) (string, []any) {
-	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
+	query := interpolateSQL(sqlTemplate, map[string]any{
 		"tableName": d.tableName,
 	})
 
@@ -578,9 +597,9 @@ func (d *Repository) migrateTable(ctx context.Context) error {
             PRIMARY KEY (id)
 		);`
 
-	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
+	query := interpolateSQL(sqlTemplate, map[string]any{
 		"tableName":  d.tableName,
-		"enumValues": sliceToMySQLValueList(model.GetTaskStatuses(model.AllTasks)),
+		"enumValues": sliceToMySQLValueList(tasq.GetTaskStatuses(tasq.AllTasks)),
 	})
 
 	_, err := d.db.ExecContext(ctx, query)
@@ -591,15 +610,15 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 	return nil
 }
 
-func getOrderingDirectives(ordering repository.Ordering) []string {
+func getOrderingDirectives(ordering tasq.Ordering) []string {
 	var (
 		OrderingCreatedAtFirst = []string{"created_at ASC", "priority DESC"}
 		OrderingPriorityFirst  = []string{"priority DESC", "created_at ASC"}
 	)
 
-	if orderingDirectives, ok := map[repository.Ordering][]string{
-		repository.OrderingCreatedAtFirst: OrderingCreatedAtFirst,
-		repository.OrderingPriorityFirst:  OrderingPriorityFirst,
+	if orderingDirectives, ok := map[tasq.Ordering][]string{
+		tasq.OrderingCreatedAtFirst: OrderingCreatedAtFirst,
+		tasq.OrderingPriorityFirst:  OrderingPriorityFirst,
 	}[ordering]; ok {
 		return orderingDirectives
 	}
@@ -631,4 +650,20 @@ func tableName(prefix string) string {
 	}
 
 	return tableName
+}
+
+func interpolateSQL(sql string, params map[string]any) string {
+	template, err := template.New("sql").Parse(sql)
+	if err != nil {
+		panic(err)
+	}
+
+	var outputBuffer bytes.Buffer
+
+	err = template.Execute(&outputBuffer, params)
+	if err != nil {
+		panic(err)
+	}
+
+	return outputBuffer.String()
 }

@@ -11,9 +11,8 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/pkg/model"
-	"github.com/greencoda/tasq/pkg/repository"
-	"github.com/greencoda/tasq/pkg/repository/postgres"
+	"github.com/greencoda/tasq"
+	"github.com/greencoda/tasq/repository/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -21,7 +20,7 @@ import (
 
 var (
 	ctx         = context.Background()
-	testTask, _ = model.NewTask("testTask", true, "testQueue", 100, 5)
+	testTask, _ = tasq.NewTask("testTask", true, "testQueue", 100, 5)
 	taskColumns = []string{
 		"id",
 		"type",
@@ -46,7 +45,7 @@ type PostgresTestSuite struct {
 	suite.Suite
 	db               *sql.DB
 	sqlMock          sqlmock.Sqlmock
-	mockedRepository repository.IRepository
+	mockedRepository tasq.IRepository
 }
 
 func TestTaskTestSuite(t *testing.T) {
@@ -161,7 +160,7 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		) RETURNING *;`)
 
 	// polling with 0 limit
-	tasks, err := s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 0)
+	tasks, err := s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 0)
 	assert.Len(s.T(), tasks, 0)
 	assert.Nil(s.T(), err)
 
@@ -170,7 +169,7 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		ExpectQuery().
 		WillReturnError(sql.ErrNoRows)
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 0)
 	assert.Nil(s.T(), err)
 
@@ -179,7 +178,7 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		ExpectQuery().
 		WillReturnError(errSQL)
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 0)
 	assert.NotNil(s.T(), err)
 
@@ -188,7 +187,7 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		ExpectQuery().
 		WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 1)
 	assert.Nil(s.T(), err)
 
@@ -269,14 +268,14 @@ func (s *PostgresTestSuite) TestRegisterFinish() {
 	// registering failure when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
 
-	task, err := s.mockedRepository.RegisterFinish(ctx, testTask, model.StatusSuccessful)
+	task, err := s.mockedRepository.RegisterFinish(ctx, testTask, tasq.StatusSuccessful)
 	assert.Empty(s.T(), task)
 	assert.NotNil(s.T(), err)
 
 	// registering failure successful
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 
-	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, model.StatusSuccessful)
+	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, tasq.StatusSuccessful)
 	assert.NotEmpty(s.T(), task)
 	assert.Nil(s.T(), err)
 }
@@ -344,5 +343,25 @@ func (s *PostgresTestSuite) TestPrepareWithTableName() {
 
 	assert.PanicsWithError(s.T(), "sql error", func() {
 		_ = postgresRepository.PrepareWithTableName("SELECT * FROM {{.tableName}}")
+	})
+}
+
+func (s *PostgresTestSuite) TestInterpolateSQL() {
+	params := map[string]any{"tableName": "test_table"}
+
+	// Interpolate SQL successfully
+	interpolatedSQL := postgres.InterpolateSQL("SELECT * FROM {{.tableName}}", params)
+	assert.Equal(s.T(), "SELECT * FROM test_table", interpolatedSQL)
+
+	// Fail interpolaing unparseable SQL template
+	assert.Panics(s.T(), func() {
+		unparseableTemplateSQL := postgres.InterpolateSQL("SELECT * FROM {{.tableName", params)
+		assert.Empty(s.T(), unparseableTemplateSQL)
+	})
+
+	// Fail interpolaing unexecutable SQL template
+	assert.Panics(s.T(), func() {
+		unexecutableTemplateSQL := postgres.InterpolateSQL(`SELECT * FROM {{if .tableName eq 1}} {{end}} {{.tableName}}`, params)
+		assert.Empty(s.T(), unexecutableTemplateSQL)
 	})
 }

@@ -1,4 +1,4 @@
-package model
+package tasq
 
 import (
 	"bytes"
@@ -60,7 +60,7 @@ func GetTaskStatuses(taskStatusGroup TaskStatusGroup) []TaskStatus {
 	return nil
 }
 
-// Task is the struct used to represent an atomic task managed by tasq
+// Task is the struct used to represent an atomic task managed by tasq.
 type Task struct {
 	ID           uuid.UUID
 	Type         string
@@ -77,7 +77,7 @@ type Task struct {
 	VisibleAt    time.Time
 }
 
-// NewTask creates a new Task struct based on the supplied arguments required to define it
+// NewTask creates a new Task struct based on the supplied arguments required to define it.
 func NewTask(taskType string, taskArgs any, queue string, priority int16, maxReceives int32) (*Task, error) {
 	taskID, err := uuid.NewRandom()
 	if err != nil {
@@ -109,6 +109,7 @@ func NewTask(taskType string, taskArgs any, queue string, priority int16, maxRec
 	}, nil
 }
 
+// UnmarshalArgs decodes the task arguments into the passed target interface.
 func (t *Task) UnmarshalArgs(target any) error {
 	var (
 		buffer  = bytes.NewBuffer(t.Args)

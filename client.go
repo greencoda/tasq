@@ -1,17 +1,14 @@
+// Package tasq provides a task queue implementation compapible with multiple repositories
 package tasq
-
-import (
-	"github.com/greencoda/tasq/pkg/repository"
-)
 
 // Client wraps the tasq repository interface which is used
 // by the different services to access the database.
 type Client struct {
-	repository repository.IRepository
+	repository IRepository
 }
 
-// NewClient creates a new tasq client instance with the provided tasq repository.
-func NewClient(repository repository.IRepository) *Client {
+// NewClient creates a new tasq client instance with the provided tasq.
+func NewClient(repository IRepository) *Client {
 	return &Client{
 		repository: repository,
 	}

@@ -1,11 +1,11 @@
-package model_test
+package tasq_test
 
 import (
 	"errors"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/pkg/model"
+	"github.com/greencoda/tasq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
@@ -33,53 +33,53 @@ func (s *TaskTestSuite) SetupTest() {
 }
 
 func (s *TaskTestSuite) TestGetTaskStatuses() {
-	allTasks := model.GetTaskStatuses(model.AllTasks)
-	assert.ElementsMatch(s.T(), allTasks, []model.TaskStatus{
-		model.StatusNew,
-		model.StatusEnqueued,
-		model.StatusInProgress,
-		model.StatusSuccessful,
-		model.StatusFailed,
+	allTasks := tasq.GetTaskStatuses(tasq.AllTasks)
+	assert.ElementsMatch(s.T(), allTasks, []tasq.TaskStatus{
+		tasq.StatusNew,
+		tasq.StatusEnqueued,
+		tasq.StatusInProgress,
+		tasq.StatusSuccessful,
+		tasq.StatusFailed,
 	})
 
-	openTasks := model.GetTaskStatuses(model.OpenTasks)
-	assert.ElementsMatch(s.T(), openTasks, []model.TaskStatus{
-		model.StatusNew,
-		model.StatusEnqueued,
-		model.StatusInProgress,
+	openTasks := tasq.GetTaskStatuses(tasq.OpenTasks)
+	assert.ElementsMatch(s.T(), openTasks, []tasq.TaskStatus{
+		tasq.StatusNew,
+		tasq.StatusEnqueued,
+		tasq.StatusInProgress,
 	})
 
-	finishedTasks := model.GetTaskStatuses(model.FinishedTasks)
-	assert.ElementsMatch(s.T(), finishedTasks, []model.TaskStatus{
-		model.StatusSuccessful,
-		model.StatusFailed,
+	finishedTasks := tasq.GetTaskStatuses(tasq.FinishedTasks)
+	assert.ElementsMatch(s.T(), finishedTasks, []tasq.TaskStatus{
+		tasq.StatusSuccessful,
+		tasq.StatusFailed,
 	})
 
-	unknownTasks := model.GetTaskStatuses(-1)
+	unknownTasks := tasq.GetTaskStatuses(-1)
 	assert.Empty(s.T(), unknownTasks)
 }
 
 func (s *TaskTestSuite) TestNewTask() {
 	// Create task successfully
-	task, _ := model.NewTask("testTask", true, "testQueue", 0, 5)
+	task, _ := tasq.NewTask("testTask", true, "testQueue", 0, 5)
 	assert.NotNil(s.T(), task)
 
 	// Fail by creating task with nil args
-	nilTask, err := model.NewTask("testTask", nil, "testQueue", 0, 5)
+	nilTask, err := tasq.NewTask("testTask", nil, "testQueue", 0, 5)
 	assert.Nil(s.T(), nilTask)
 	assert.NotNil(s.T(), err)
 
 	// Fail by causing uuid generation to return error
 	uuid.SetRand(new(errorReader))
 
-	invalidUUIDTask, err := model.NewTask("testTask", false, "testQueue", 0, 5)
+	invalidUUIDTask, err := tasq.NewTask("testTask", false, "testQueue", 0, 5)
 	assert.Nil(s.T(), invalidUUIDTask)
 	assert.NotNil(s.T(), err)
 }
 
 func (s *TaskTestSuite) TestTaskUnmarshalArgs() {
 	// Create task successfully
-	task, _ := model.NewTask("testTask", true, "testQueue", 0, 5)
+	task, _ := tasq.NewTask("testTask", true, "testQueue", 0, 5)
 	assert.NotNil(s.T(), task)
 
 	// Unmarshal task args successfully

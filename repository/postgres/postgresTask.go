@@ -5,26 +5,26 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/pkg/model"
+	"github.com/greencoda/tasq"
 )
 
 type postgresTask struct {
-	ID           uuid.UUID        `db:"id"`
-	Type         string           `db:"type"`
-	Args         []byte           `db:"args"`
-	Queue        string           `db:"queue"`
-	Priority     int16            `db:"priority"`
-	Status       model.TaskStatus `db:"status"`
-	ReceiveCount int32            `db:"receive_count"`
-	MaxReceives  int32            `db:"max_receives"`
-	LastError    sql.NullString   `db:"last_error"`
-	CreatedAt    time.Time        `db:"created_at"`
-	StartedAt    *time.Time       `db:"started_at"`
-	FinishedAt   *time.Time       `db:"finished_at"`
-	VisibleAt    time.Time        `db:"visible_at"`
+	ID           uuid.UUID       `db:"id"`
+	Type         string          `db:"type"`
+	Args         []byte          `db:"args"`
+	Queue        string          `db:"queue"`
+	Priority     int16           `db:"priority"`
+	Status       tasq.TaskStatus `db:"status"`
+	ReceiveCount int32           `db:"receive_count"`
+	MaxReceives  int32           `db:"max_receives"`
+	LastError    sql.NullString  `db:"last_error"`
+	CreatedAt    time.Time       `db:"created_at"`
+	StartedAt    *time.Time      `db:"started_at"`
+	FinishedAt   *time.Time      `db:"finished_at"`
+	VisibleAt    time.Time       `db:"visible_at"`
 }
 
-func newFromTask(task *model.Task) *postgresTask {
+func newFromTask(task *tasq.Task) *postgresTask {
 	return &postgresTask{
 		ID:           task.ID,
 		Type:         task.Type,
@@ -42,8 +42,8 @@ func newFromTask(task *model.Task) *postgresTask {
 	}
 }
 
-func (t *postgresTask) toTask() *model.Task {
-	return &model.Task{
+func (t *postgresTask) toTask() *tasq.Task {
+	return &tasq.Task{
 		ID:           t.ID,
 		Type:         t.Type,
 		Args:         t.Args,
@@ -60,8 +60,8 @@ func (t *postgresTask) toTask() *model.Task {
 	}
 }
 
-func postgresTasksToTasks(postgresTasks []*postgresTask) []*model.Task {
-	tasks := make([]*model.Task, len(postgresTasks))
+func postgresTasksToTasks(postgresTasks []*postgresTask) []*tasq.Task {
+	tasks := make([]*tasq.Task, len(postgresTasks))
 
 	for i, postgresTask := range postgresTasks {
 		tasks[i] = postgresTask.toTask()

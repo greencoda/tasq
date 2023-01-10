@@ -3,7 +3,7 @@ package mysql_test
 import (
 	"testing"
 
-	"github.com/greencoda/tasq/pkg/repository/mysql"
+	"github.com/greencoda/tasq/repository/mysql"
 	"github.com/stretchr/testify/assert"
 )
 
