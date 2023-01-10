@@ -32,6 +32,33 @@ func (s *TaskTestSuite) SetupTest() {
 	uuid.SetRand(nil)
 }
 
+func (s *TaskTestSuite) TestGetTaskStatuses() {
+	allTasks := model.GetTaskStatuses(model.AllTasks)
+	assert.ElementsMatch(s.T(), allTasks, []model.TaskStatus{
+		model.StatusNew,
+		model.StatusEnqueued,
+		model.StatusInProgress,
+		model.StatusSuccessful,
+		model.StatusFailed,
+	})
+
+	openTasks := model.GetTaskStatuses(model.OpenTasks)
+	assert.ElementsMatch(s.T(), openTasks, []model.TaskStatus{
+		model.StatusNew,
+		model.StatusEnqueued,
+		model.StatusInProgress,
+	})
+
+	finishedTasks := model.GetTaskStatuses(model.FinishedTasks)
+	assert.ElementsMatch(s.T(), finishedTasks, []model.TaskStatus{
+		model.StatusSuccessful,
+		model.StatusFailed,
+	})
+
+	unknownTasks := model.GetTaskStatuses(-1)
+	assert.Empty(s.T(), unknownTasks)
+}
+
 func (s *TaskTestSuite) TestNewTask() {
 	// Create task successfully
 	task, _ := model.NewTask("testTask", true, "testQueue", 0, 5)

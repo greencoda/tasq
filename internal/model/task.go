@@ -10,8 +10,10 @@ import (
 	"github.com/google/uuid"
 )
 
+// TaskStatus is an enum type describing the status a task is currently in.
 type TaskStatus string
 
+// The collection of possible task statuses.
 const (
 	StatusNew        TaskStatus = "NEW"
 	StatusEnqueued   TaskStatus = "ENQUEUED"
@@ -20,25 +22,45 @@ const (
 	StatusFailed     TaskStatus = "FAILED"
 )
 
-var (
-	AllTaskStatuses = []TaskStatus{
-		StatusNew,
-		StatusEnqueued,
-		StatusInProgress,
-		StatusSuccessful,
-		StatusFailed,
-	}
-	OpenTaskStatuses = []TaskStatus{
-		StatusNew,
-		StatusEnqueued,
-		StatusInProgress,
-	}
-	FinishedTaskStatuses = []TaskStatus{
-		StatusSuccessful,
-		StatusFailed,
-	}
+// TaskStatusGroup is an enum type describing the key used in the
+// map of TaskStatuses which groups them for different purposes.
+type TaskStatusGroup int
+
+// The collection of possible task status groupings.
+const (
+	AllTasks TaskStatusGroup = iota
+	OpenTasks
+	FinishedTasks
 )
 
+// GetTaskStatuses returns a slice of TaskStatuses based on the TaskStatusGroup
+// passed as an argument.
+func GetTaskStatuses(taskStatusGroup TaskStatusGroup) []TaskStatus {
+	if selected, ok := map[TaskStatusGroup][]TaskStatus{
+		AllTasks: {
+			StatusNew,
+			StatusEnqueued,
+			StatusInProgress,
+			StatusSuccessful,
+			StatusFailed,
+		},
+		OpenTasks: {
+			StatusNew,
+			StatusEnqueued,
+			StatusInProgress,
+		},
+		FinishedTasks: {
+			StatusSuccessful,
+			StatusFailed,
+		},
+	}[taskStatusGroup]; ok {
+		return selected
+	}
+
+	return nil
+}
+
+// Task is the struct used to represent an atomic task managed by tasq
 type Task struct {
 	ID           uuid.UUID
 	Type         string
@@ -55,6 +77,7 @@ type Task struct {
 	VisibleAt    time.Time
 }
 
+// NewTask creates a new Task struct based on the supplied arguments required to define it
 func NewTask(taskType string, taskArgs any, queue string, priority int16, maxReceives int32) (*Task, error) {
 	taskID, err := uuid.NewRandom()
 	if err != nil {

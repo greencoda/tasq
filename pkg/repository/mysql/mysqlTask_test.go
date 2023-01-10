@@ -1,15 +1,16 @@
-package mysql
+package mysql_test
 
 import (
 	"testing"
 
+	"github.com/greencoda/tasq/pkg/repository/mysql"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestMySQLTaskIDScan(t *testing.T) {
 	t.Parallel()
 
-	var mySQLID TaskID
+	var mySQLID mysql.TaskID
 
 	err := mySQLID.Scan(nil)
 	assert.Nil(t, err)

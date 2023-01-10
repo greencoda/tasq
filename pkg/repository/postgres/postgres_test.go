@@ -1,4 +1,4 @@
-package postgres
+package postgres_test
 
 import (
 	"context"
@@ -13,16 +13,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq/internal/model"
 	"github.com/greencoda/tasq/pkg/repository"
+	"github.com/greencoda/tasq/pkg/repository/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
 var (
-	ctx              context.Context
-	testTask, _      = model.NewTask("testTask", true, "testQueue", 100, 5)
-	testPostgresTask = newFromTask(testTask)
-	taskColumns      = []string{
+	ctx         = context.Background()
+	testTask, _ = model.NewTask("testTask", true, "testQueue", 100, 5)
+	taskColumns = []string{
 		"id",
 		"type",
 		"args",
@@ -37,23 +37,9 @@ var (
 		"finished_at",
 		"visible_at",
 	}
-	taskValues = []driver.Value{
-		testPostgresTask.ID,
-		testPostgresTask.Type,
-		testPostgresTask.Args,
-		testPostgresTask.Queue,
-		testPostgresTask.Priority,
-		testPostgresTask.Status,
-		testPostgresTask.ReceiveCount,
-		testPostgresTask.MaxReceives,
-		testPostgresTask.LastError,
-		testPostgresTask.CreatedAt,
-		testPostgresTask.StartedAt,
-		testPostgresTask.FinishedAt,
-		testPostgresTask.VisibleAt,
-	}
-	errSQL  = errors.New("sql error")
-	errTask = errors.New("task error")
+	taskValues = postgres.GetTestTaskValues(testTask)
+	errSQL     = errors.New("sql error")
+	errTask    = errors.New("task error")
 )
 
 type PostgresTestSuite struct {
@@ -72,51 +58,34 @@ func TestTaskTestSuite(t *testing.T) {
 func (s *PostgresTestSuite) SetupTest() {
 	var err error
 
-	ctx = context.Background()
-
 	s.db, s.sqlMock, err = sqlmock.New()
 	require.Nil(s.T(), err)
 
-	s.mockedRepository, err = NewRepository(s.db, "test")
+	s.mockedRepository, err = postgres.NewRepository(s.db, "test")
 	require.NotNil(s.T(), s.mockedRepository)
 	require.Nil(s.T(), err)
 }
 
 func (s *PostgresTestSuite) TestNewRepository() {
 	// providing the datasource as *sql.DB
-	dbPostgresRepository, err := NewRepository(s.db, "test")
-	assert.Equal(s.T(), "test_tasks", dbPostgresRepository.tableName())
-	assert.Equal(s.T(), "test_task_status", dbPostgresRepository.statusTypeName())
-	assert.NotNil(s.T(), dbPostgresRepository)
+	repository, err := postgres.NewRepository(s.db, "test")
+	assert.NotNil(s.T(), repository)
 	assert.Nil(s.T(), err)
 
 	// providing the datasource as *sql.DB with no prefix
-	noPrefixDBPostgresRepository, err := NewRepository(s.db, "")
-	assert.Equal(s.T(), "tasks", noPrefixDBPostgresRepository.tableName())
-	assert.Equal(s.T(), "task_status", noPrefixDBPostgresRepository.statusTypeName())
-	assert.NotNil(s.T(), noPrefixDBPostgresRepository)
+	repository, err = postgres.NewRepository(s.db, "")
+	assert.NotNil(s.T(), repository)
 	assert.Nil(s.T(), err)
 
 	// providing the datasource as dsn string
-	dsnRepository, err := NewRepository("testDSN", "test")
-	assert.NotNil(s.T(), dsnRepository)
+	repository, err = postgres.NewRepository("testDSN", "test")
+	assert.NotNil(s.T(), repository)
 	assert.Nil(s.T(), err)
 
 	// providing the datasource as unknown datasource type
-	unknownDatasourceRepository, err := NewRepository(false, "test")
-	assert.Nil(s.T(), unknownDatasourceRepository)
+	repository, err = postgres.NewRepository(false, "test")
+	assert.Nil(s.T(), repository)
 	assert.NotNil(s.T(), err)
-}
-
-func (s *PostgresTestSuite) TestDB() {
-	dbRef := s.mockedRepository.DB()
-	assert.NotNil(s.T(), dbRef)
-
-	dbRef.SetMaxOpenConns(5)
-
-	dbRef = s.mockedRepository.DB()
-	assert.NotNil(s.T(), dbRef)
-	assert.Equal(s.T(), 5, dbRef.Stats().MaxOpenConnections)
 }
 
 func (s *PostgresTestSuite) TestMigrate() {
@@ -147,21 +116,28 @@ func (s *PostgresTestSuite) TestPingTasks() {
 		stmtMockRegexp = regexp.QuoteMeta(`UPDATE test_tasks SET "visible_at" = $1 WHERE "id" = ANY($2) RETURNING id;`)
 	)
 	// pinging empty tasklist
-	noTasks, err := s.mockedRepository.PingTasks(ctx, []uuid.UUID{}, 15*time.Second)
-	assert.Len(s.T(), noTasks, 0)
+	tasks, err := s.mockedRepository.PingTasks(ctx, []uuid.UUID{}, 15*time.Second)
+	assert.Len(s.T(), tasks, 0)
 	assert.Nil(s.T(), err)
+
+	// pinging when stmt preparation returns an error
+	s.sqlMock.ExpectPrepare(stmtMockRegexp).WillReturnError(errSQL)
+
+	assert.PanicsWithError(s.T(), errSQL.Error(), func() {
+		_, _ = s.mockedRepository.PingTasks(ctx, []uuid.UUID{taskUUID}, 15*time.Second)
+	})
 
 	// pinging when DB returns no rows
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
 
-	errTasks, err := s.mockedRepository.PingTasks(ctx, []uuid.UUID{taskUUID}, 15*time.Second)
-	assert.Len(s.T(), errTasks, 0)
+	tasks, err = s.mockedRepository.PingTasks(ctx, []uuid.UUID{taskUUID}, 15*time.Second)
+	assert.Len(s.T(), tasks, 0)
 	assert.NotNil(s.T(), err)
 
 	// pinging existing task
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(taskUUID))
 
-	tasks, err := s.mockedRepository.PingTasks(ctx, []uuid.UUID{taskUUID}, 15*time.Second)
+	tasks, err = s.mockedRepository.PingTasks(ctx, []uuid.UUID{taskUUID}, 15*time.Second)
 	assert.Len(s.T(), tasks, 1)
 	assert.Nil(s.T(), err)
 }
@@ -185,8 +161,8 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		) RETURNING *;`)
 
 	// polling with 0 limit
-	zeroLimitTasks, err := s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, []string{"created_at ASC", "priority DESC"}, 0)
-	assert.Len(s.T(), zeroLimitTasks, 0)
+	tasks, err := s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 0)
+	assert.Len(s.T(), tasks, 0)
 	assert.Nil(s.T(), err)
 
 	// polling when DB returns no rows
@@ -194,8 +170,8 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		ExpectQuery().
 		WillReturnError(sql.ErrNoRows)
 
-	noTasks, err := s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, []string{"created_at ASC", "priority DESC"}, 1)
-	assert.Len(s.T(), noTasks, 0)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	assert.Len(s.T(), tasks, 0)
 	assert.Nil(s.T(), err)
 
 	// polling when DB returns error
@@ -203,8 +179,8 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		ExpectQuery().
 		WillReturnError(errSQL)
 
-	errTasks, err := s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, []string{"created_at ASC", "priority DESC"}, 1)
-	assert.Len(s.T(), errTasks, 0)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	assert.Len(s.T(), tasks, 0)
 	assert.NotNil(s.T(), err)
 
 	// polling for existing tasks
@@ -212,7 +188,16 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		ExpectQuery().
 		WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 
-	tasks, err := s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, []string{"created_at ASC", "priority DESC"}, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, repository.OrderingCreatedAtFirst, 1)
+	assert.Len(s.T(), tasks, 1)
+	assert.Nil(s.T(), err)
+
+	// polling for existing tasks with unknown ordering
+	s.sqlMock.ExpectPrepare(stmtMockRegexp).
+		ExpectQuery().
+		WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
+
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, -1, 1)
 	assert.Len(s.T(), tasks, 1)
 	assert.Nil(s.T(), err)
 }
@@ -248,15 +233,15 @@ func (s *PostgresTestSuite) TestRegisterStart() {
 	// registering start when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
 
-	errStartedTask, err := s.mockedRepository.RegisterStart(ctx, testTask)
-	assert.Empty(s.T(), errStartedTask)
+	task, err := s.mockedRepository.RegisterStart(ctx, testTask)
+	assert.Empty(s.T(), task)
 	assert.NotNil(s.T(), err)
 
 	// registering start successful
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 
-	startedTask, err := s.mockedRepository.RegisterStart(ctx, testTask)
-	assert.NotEmpty(s.T(), startedTask)
+	task, err = s.mockedRepository.RegisterStart(ctx, testTask)
+	assert.NotEmpty(s.T(), task)
 	assert.Nil(s.T(), err)
 }
 
@@ -266,51 +251,33 @@ func (s *PostgresTestSuite) TestRegisterError() {
 	// registering error when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
 
-	errErroredTask, err := s.mockedRepository.RegisterError(ctx, testTask, errTask)
-	assert.Empty(s.T(), errErroredTask)
+	task, err := s.mockedRepository.RegisterError(ctx, testTask, errTask)
+	assert.Empty(s.T(), task)
 	assert.NotNil(s.T(), err)
 
 	// registering error successful
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 
-	erroredTask, err := s.mockedRepository.RegisterError(ctx, testTask, errTask)
-	assert.NotEmpty(s.T(), erroredTask)
+	task, err = s.mockedRepository.RegisterError(ctx, testTask, errTask)
+	assert.NotEmpty(s.T(), task)
 	assert.Nil(s.T(), err)
 }
 
-func (s *PostgresTestSuite) TestRegisterSuccess() {
-	stmtMockRegexp := regexp.QuoteMeta(`UPDATE test_tasks SET "status" = $1, "finished_at" = $2 WHERE "id" = $3 RETURNING *;`)
-
-	// registering success when DB returns error
-	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
-
-	errSuccessfulTask, err := s.mockedRepository.RegisterSuccess(ctx, testTask)
-	assert.Empty(s.T(), errSuccessfulTask)
-	assert.NotNil(s.T(), err)
-
-	// registering success successful
-	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
-
-	successfulTask, err := s.mockedRepository.RegisterSuccess(ctx, testTask)
-	assert.NotEmpty(s.T(), successfulTask)
-	assert.Nil(s.T(), err)
-}
-
-func (s *PostgresTestSuite) TestRegisterFailure() {
+func (s *PostgresTestSuite) TestRegisterFinish() {
 	stmtMockRegexp := regexp.QuoteMeta(`UPDATE test_tasks SET "status" = $1, "finished_at" = $2 WHERE "id" = $3 RETURNING *;`)
 
 	// registering failure when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
 
-	errFailedTask, err := s.mockedRepository.RegisterFailure(ctx, testTask)
-	assert.Empty(s.T(), errFailedTask)
+	task, err := s.mockedRepository.RegisterFinish(ctx, testTask, model.StatusSuccessful)
+	assert.Empty(s.T(), task)
 	assert.NotNil(s.T(), err)
 
 	// registering failure successful
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 
-	failedTask, err := s.mockedRepository.RegisterFailure(ctx, testTask)
-	assert.NotEmpty(s.T(), failedTask)
+	task, err = s.mockedRepository.RegisterFinish(ctx, testTask, model.StatusSuccessful)
+	assert.NotEmpty(s.T(), task)
 	assert.Nil(s.T(), err)
 }
 
@@ -320,15 +287,15 @@ func (s *PostgresTestSuite) TestSubmitTask() {
 	// submitting task when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
 
-	errSubmittedTask, err := s.mockedRepository.SubmitTask(ctx, testTask)
-	assert.Empty(s.T(), errSubmittedTask)
+	task, err := s.mockedRepository.SubmitTask(ctx, testTask)
+	assert.Empty(s.T(), task)
 	assert.NotNil(s.T(), err)
 
 	// submitting task successful
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 
-	submittedTask, err := s.mockedRepository.SubmitTask(ctx, testTask)
-	assert.NotEmpty(s.T(), submittedTask)
+	task, err = s.mockedRepository.SubmitTask(ctx, testTask)
+	assert.NotEmpty(s.T(), task)
 	assert.Nil(s.T(), err)
 }
 
@@ -354,28 +321,28 @@ func (s *PostgresTestSuite) TestRequeueTask() {
 	// requeuing task when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
 
-	errRequeuedTask, err := s.mockedRepository.RequeueTask(ctx, testTask)
-	assert.Empty(s.T(), errRequeuedTask)
+	task, err := s.mockedRepository.RequeueTask(ctx, testTask)
+	assert.Empty(s.T(), task)
 	assert.NotNil(s.T(), err)
 
 	// requeuing task successful
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 
-	requeuedTask, err := s.mockedRepository.RequeueTask(ctx, testTask)
-	assert.NotEmpty(s.T(), requeuedTask)
+	task, err = s.mockedRepository.RequeueTask(ctx, testTask)
+	assert.NotEmpty(s.T(), task)
 	assert.Nil(s.T(), err)
 }
 
 func (s *PostgresTestSuite) TestPrepareWithTableName() {
 	stmtMockRegexp := regexp.QuoteMeta(`SELECT * FROM test_tasks`)
 
-	postgresRepository, ok := s.mockedRepository.(*Repository)
+	postgresRepository, ok := s.mockedRepository.(*postgres.Repository)
 	require.True(s.T(), ok)
 
 	// preparing stmt with table name when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).WillReturnError(errSQL)
 
 	assert.PanicsWithError(s.T(), "sql error", func() {
-		_ = postgresRepository.prepareWithTableName("SELECT * FROM {{.tableName}}")
+		_ = postgresRepository.PrepareWithTableName("SELECT * FROM {{.tableName}}")
 	})
 }

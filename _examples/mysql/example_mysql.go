@@ -56,7 +56,7 @@ func consumeTasks(consumer *tasq.Consumer, wg *sync.WaitGroup) {
 	}
 }
 
-func produceTasks(producer *tasq.Producer) {
+func produceTasks(ctx context.Context, producer *tasq.Producer) {
 	taskTicker := time.NewTicker(1 * time.Second)
 
 	for taskIndex := 0; true; taskIndex++ {
@@ -68,7 +68,7 @@ func produceTasks(producer *tasq.Producer) {
 			Value: rand.Float64(),
 		}
 
-		t, err := producer.Submit(taskType, taskArgs, taskQueue, 20, 5)
+		t, err := producer.Submit(ctx, taskType, taskArgs, taskQueue, 20, 5)
 		if err != nil {
 			log.Panicf("error while submitting task to tasq: %s", err)
 		} else {
@@ -105,13 +105,13 @@ func main() {
 	log.Print("database migrated successfully")
 
 	// instantiate tasq client
-	tasqClient := tasq.NewClient(ctx, tasqRepository)
+	tasqClient := tasq.NewClient(tasqRepository)
 
 	// set up tasq cleaner
 	cleaner := tasqClient.NewCleaner().
 		WithTaskAge(time.Second)
 
-	cleanedTaskCount, err := cleaner.Clean()
+	cleanedTaskCount, err := cleaner.Clean(ctx)
 	if err != nil {
 		log.Fatalf("failed to clean old tasks from queue: %s", err)
 	}
@@ -134,7 +134,7 @@ func main() {
 	}
 
 	// start the consumer
-	err = consumer.Start()
+	err = consumer.Start(ctx)
 	if err != nil {
 		log.Fatalf("failed to start tasq consumer: %s", err)
 	}
@@ -149,7 +149,7 @@ func main() {
 	producer := tasqClient.NewProducer()
 
 	// start the goroutine which produces the tasks and submits them to the tasq queue
-	go produceTasks(producer)
+	go produceTasks(ctx, producer)
 
 	// block the execution
 	<-time.After(30 * time.Second)

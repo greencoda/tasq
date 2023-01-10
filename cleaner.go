@@ -1,10 +1,11 @@
 package tasq
 
 import (
+	"context"
 	"time"
 )
 
-var defaultTaskAgeLimit = 15 * time.Minute
+const defaultTaskAgeLimit = 15 * time.Minute
 
 // Cleaner is a service instance created by a Client with reference to that client
 // and the task age limit parameter.
@@ -25,8 +26,8 @@ func (c *Client) NewCleaner() *Cleaner {
 
 // Clean will initiate the removal of finished (either succeeded or failed) tasks from the queue table
 // if they have been created long enough ago for them to be eligible.
-func (c *Cleaner) Clean() (int64, error) {
-	return c.client.repository.CleanTasks(c.client.getContext(), c.taskAgeLimit)
+func (c *Cleaner) Clean(ctx context.Context) (int64, error) {
+	return c.client.repository.CleanTasks(ctx, c.taskAgeLimit)
 }
 
 // WithTaskAge defines the minimum time duration that must have passed since the creation of a finished task

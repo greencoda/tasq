@@ -20,8 +20,8 @@ const driverName = "mysql"
 var errUnexpectedDataSourceType = errors.New("unexpected dataSource type")
 
 type Repository struct {
-	db     *sqlx.DB
-	prefix string
+	db        *sqlx.DB
+	tableName string
 }
 
 func NewRepository(dataSource any, prefix string) (*Repository, error) {
@@ -42,8 +42,8 @@ func newRepositoryFromDSN(dsn string, prefix string) (*Repository, error) {
 	}
 
 	return &Repository{
-		db:     dbx,
-		prefix: prefix,
+		db:        dbx,
+		tableName: tableName(prefix),
 	}, nil
 }
 
@@ -51,23 +51,9 @@ func newRepositoryFromDB(db *sql.DB, prefix string) (*Repository, error) {
 	dbx := sqlx.NewDb(db, driverName)
 
 	return &Repository{
-		db:     dbx,
-		prefix: prefix,
+		db:        dbx,
+		tableName: tableName(prefix),
 	}, nil
-}
-
-func (d *Repository) DB() *sql.DB {
-	return d.db.DB
-}
-
-func (d *Repository) tableName() string {
-	const tableName = "tasks"
-
-	if len(d.prefix) > 0 {
-		return d.prefix + "_" + tableName
-	}
-
-	return tableName
 }
 
 func (d *Repository) Migrate(ctx context.Context) error {
@@ -138,7 +124,7 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 	return mySQLTasksToTasks(pingedMySQLTasks), nil
 }
 
-func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering []string, pollLimit int) ([]*model.Task, error) {
+func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering repository.Ordering, pollLimit int) ([]*model.Task, error) {
 	if pollLimit == 0 {
 		return []*model.Task{}, nil
 	}
@@ -165,7 +151,7 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 				visible_at = :visibleAt
 			WHERE
 				id IN (:polledTaskIDs);`
-		selectUpdatedTasksSQLTemplate = `SELECT 
+		selectUpdatedPolledTasksSQLTemplate = `SELECT 
 				* 
 			FROM 
 				{{.tableName}}
@@ -186,9 +172,9 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 		selectPolledTasksQuery, selectPolledTasksArgs = d.getQueryWithTableName(selectPolledTasksSQLTemplate, map[string]any{
 			"pollTypes":    types,
 			"pollQueues":   queues,
-			"pollStatuses": model.OpenTaskStatuses,
+			"pollStatuses": model.GetTaskStatuses(model.OpenTasks),
 			"pollTime":     timeToString(pollTime),
-			"pollOrdering": ordering,
+			"pollOrdering": getOrderingDirectives(ordering),
 			"pollLimit":    pollLimit,
 		})
 	)
@@ -215,7 +201,7 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 
 	var (
 		polledMySQLTasks                                []*mySQLTask
-		selectUpdatedTasksQuery, selectUpdatedTasksArgs = d.getQueryWithTableName(selectUpdatedTasksSQLTemplate, map[string]any{
+		selectUpdatedTasksQuery, selectUpdatedTasksArgs = d.getQueryWithTableName(selectUpdatedPolledTasksSQLTemplate, map[string]any{
 			"polledTaskIDs": polledTaskIDs,
 		})
 	)
@@ -243,7 +229,7 @@ func (d *Repository) CleanTasks(ctx context.Context, cleanAge time.Duration) (in
 	var (
 		cleanTime                       = time.Now()
 		cleanTasksQuery, cleanTasksArgs = d.getQueryWithTableName(cleanTasksSQLTemplate, map[string]any{
-			"statuses": model.FinishedTaskStatuses,
+			"statuses": model.GetTaskStatuses(model.FinishedTasks),
 			"cleanAt":  timeToString(cleanTime.Add(-cleanAge)),
 		})
 	)
@@ -370,15 +356,7 @@ func (d *Repository) RegisterError(ctx context.Context, task *model.Task, errTas
 	return mySQLTask.toTask(), nil
 }
 
-func (d *Repository) RegisterSuccess(ctx context.Context, task *model.Task) (*model.Task, error) {
-	return d.registerFinish(ctx, task, model.StatusSuccessful)
-}
-
-func (d *Repository) RegisterFailure(ctx context.Context, task *model.Task) (*model.Task, error) {
-	return d.registerFinish(ctx, task, model.StatusFailed)
-}
-
-func (d *Repository) registerFinish(ctx context.Context, task *model.Task, finishStatus model.TaskStatus) (*model.Task, error) {
+func (d *Repository) RegisterFinish(ctx context.Context, task *model.Task, finishStatus model.TaskStatus) (*model.Task, error) {
 	const (
 		updateTaskSQLTemplate = `UPDATE 
 				{{.tableName}} 
@@ -566,7 +544,7 @@ func (d *Repository) RequeueTask(ctx context.Context, task *model.Task) (*model.
 
 func (d *Repository) getQueryWithTableName(sqlTemplate string, args ...any) (string, []any) {
 	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
-		"tableName": d.tableName(),
+		"tableName": d.tableName,
 	})
 
 	query, args, err := sqlx.Named(query, args)
@@ -601,8 +579,8 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 		);`
 
 	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
-		"tableName":  d.tableName(),
-		"enumValues": sliceToMySQLValueList(model.AllTaskStatuses),
+		"tableName":  d.tableName,
+		"enumValues": sliceToMySQLValueList(model.GetTaskStatuses(model.AllTasks)),
 	})
 
 	_, err := d.db.ExecContext(ctx, query)
@@ -611,6 +589,28 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func getOrderingDirectives(ordering repository.Ordering) []string {
+	var (
+		OrderingCreatedAtFirst = []string{"created_at ASC", "priority DESC"}
+		OrderingPriorityFirst  = []string{"priority DESC", "created_at ASC"}
+	)
+
+	if orderingDirectives, ok := map[repository.Ordering][]string{
+		repository.OrderingCreatedAtFirst: OrderingCreatedAtFirst,
+		repository.OrderingPriorityFirst:  OrderingPriorityFirst,
+	}[ordering]; ok {
+		return orderingDirectives
+	}
+
+	return OrderingCreatedAtFirst
+}
+
+func rollback(tx *sqlx.Tx) {
+	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+		panic(err)
+	}
 }
 
 func sliceToMySQLValueList[T any](slice []T) string {
@@ -623,8 +623,12 @@ func sliceToMySQLValueList[T any](slice []T) string {
 	return fmt.Sprintf(`"%s"`, strings.Join(stringSlice, `", "`))
 }
 
-func rollback(tx *sqlx.Tx) {
-	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
-		panic(err)
+func tableName(prefix string) string {
+	const tableName = "tasks"
+
+	if len(prefix) > 0 {
+		return prefix + "_" + tableName
 	}
+
+	return tableName
 }

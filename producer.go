@@ -1,6 +1,7 @@
 package tasq
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/greencoda/tasq/internal/model"
@@ -20,13 +21,13 @@ func (c *Client) NewProducer() *Producer {
 }
 
 // Submit constructs and submits a new task to the queue based on the supplied arguments.
-func (p *Producer) Submit(taskType string, taskArgs any, queue string, priority int16, maxReceives int32) (*model.Task, error) {
+func (p *Producer) Submit(ctx context.Context, taskType string, taskArgs any, queue string, priority int16, maxReceives int32) (*model.Task, error) {
 	newTask, err := model.NewTask(taskType, taskArgs, queue, priority, maxReceives)
 	if err != nil {
 		return nil, fmt.Errorf("error creating task: %w", err)
 	}
 
-	submittedTask, err := p.client.repository.SubmitTask(p.client.getContext(), newTask)
+	submittedTask, err := p.client.repository.SubmitTask(ctx, newTask)
 	if err != nil {
 		return nil, fmt.Errorf("error submitting task: %w", err)
 	}

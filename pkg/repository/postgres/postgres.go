@@ -20,8 +20,9 @@ const driverName = "postgres"
 var errUnexpectedDataSource = errors.New("unexpected dataSource type")
 
 type Repository struct {
-	db     *sqlx.DB
-	prefix string
+	db             *sqlx.DB
+	statusTypeName string
+	tableName      string
 }
 
 func NewRepository(dataSource any, prefix string) (*Repository, error) {
@@ -39,8 +40,9 @@ func newRepositoryFromDSN(dsn string, prefix string) (*Repository, error) {
 	dbx, _ := sqlx.Open(driverName, dsn)
 
 	return &Repository{
-		db:     dbx,
-		prefix: prefix,
+		db:             dbx,
+		statusTypeName: statusTypeName(prefix),
+		tableName:      tableName(prefix),
 	}, nil
 }
 
@@ -48,32 +50,10 @@ func newRepositoryFromDB(db *sql.DB, prefix string) (*Repository, error) {
 	dbx := sqlx.NewDb(db, driverName)
 
 	return &Repository{
-		db:     dbx,
-		prefix: prefix,
+		db:             dbx,
+		statusTypeName: statusTypeName(prefix),
+		tableName:      tableName(prefix),
 	}, nil
-}
-
-func (d *Repository) DB() *sql.DB {
-	return d.db.DB
-}
-
-func (d *Repository) tableName() string {
-	const tableName = "tasks"
-
-	if len(d.prefix) > 0 {
-		return d.prefix + "_" + tableName
-	}
-
-	return tableName
-}
-
-func (d *Repository) statusTypeName() string {
-	typeNameSegments := []string{"task_status"}
-	if len(d.prefix) > 0 {
-		typeNameSegments = append([]string{d.prefix}, typeNameSegments...)
-	}
-
-	return strings.Join(typeNameSegments, "_")
 }
 
 func (d *Repository) Migrate(ctx context.Context) error {
@@ -119,7 +99,7 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 	return postgresTasksToTasks(pingedTasks), nil
 }
 
-func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering []string, pollLimit int) ([]*model.Task, error) {
+func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering repository.Ordering, pollLimit int) ([]*model.Task, error) {
 	if pollLimit == 0 {
 		return []*model.Task{}, nil
 	}
@@ -153,9 +133,9 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 		"visible_at":    pollTime.Add(visibilityTimeout),
 		"poll_types":    pq.Array(types),
 		"poll_queues":   pq.Array(queues),
-		"poll_statuses": pq.Array(model.OpenTaskStatuses),
+		"poll_statuses": pq.Array(model.GetTaskStatuses(model.OpenTasks)),
 		"poll_time":     pollTime,
-		"poll_ordering": pq.Array(ordering),
+		"poll_ordering": pq.Array(getOrderingDirectives(ordering)),
 		"poll_limit":    pollLimit,
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -176,7 +156,7 @@ func (d *Repository) CleanTasks(ctx context.Context, cleanAge time.Duration) (in
 	)
 
 	result, err := stmt.ExecContext(ctx, map[string]any{
-		"statuses": pq.Array(model.FinishedTaskStatuses),
+		"statuses": pq.Array(model.GetTaskStatuses(model.FinishedTasks)),
 		"cleanAt":  cleanTime.Add(-cleanAge),
 	})
 	if err != nil {
@@ -242,15 +222,7 @@ func (d *Repository) RegisterError(ctx context.Context, task *model.Task, errTas
 	return updatedTask.toTask(), nil
 }
 
-func (d *Repository) RegisterSuccess(ctx context.Context, task *model.Task) (*model.Task, error) {
-	return d.registerFinish(ctx, task, model.StatusSuccessful)
-}
-
-func (d *Repository) RegisterFailure(ctx context.Context, task *model.Task) (*model.Task, error) {
-	return d.registerFinish(ctx, task, model.StatusFailed)
-}
-
-func (d *Repository) registerFinish(ctx context.Context, task *model.Task, finishStatus model.TaskStatus) (*model.Task, error) {
+func (d *Repository) RegisterFinish(ctx context.Context, task *model.Task, finishStatus model.TaskStatus) (*model.Task, error) {
 	var (
 		updatedTask = new(postgresTask)
 		finishTime  = time.Now()
@@ -346,19 +318,6 @@ func (d *Repository) RequeueTask(ctx context.Context, task *model.Task) (*model.
 	return updatedTask.toTask(), err
 }
 
-func (d *Repository) prepareWithTableName(sqlTemplate string) *sqlx.NamedStmt {
-	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
-		"tableName": d.tableName(),
-	})
-
-	namedStmt, err := d.db.PrepareNamed(query)
-	if err != nil {
-		panic(err)
-	}
-
-	return namedStmt
-}
-
 func (d *Repository) migrateStatus(ctx context.Context) error {
 	var (
 		sqlTemplate = `DO $$
@@ -368,8 +327,8 @@ func (d *Repository) migrateStatus(ctx context.Context) error {
 				END IF;
 			END$$;`
 		query = repository.InterpolateSQL(sqlTemplate, map[string]any{
-			"statusTypeName": d.statusTypeName(),
-			"enumValues":     sliceToPostgreSQLValueList(model.AllTaskStatuses),
+			"statusTypeName": d.statusTypeName,
+			"enumValues":     sliceToPostgreSQLValueList(model.GetTaskStatuses(model.AllTasks)),
 		})
 	)
 
@@ -399,8 +358,8 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 		);`
 
 	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
-		"tableName":      d.tableName(),
-		"statusTypeName": d.statusTypeName(),
+		"tableName":      d.tableName,
+		"statusTypeName": d.statusTypeName,
 	})
 
 	_, err := d.db.ExecContext(ctx, query)
@@ -411,6 +370,35 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 	return nil
 }
 
+func (d *Repository) prepareWithTableName(sqlTemplate string) *sqlx.NamedStmt {
+	query := repository.InterpolateSQL(sqlTemplate, map[string]any{
+		"tableName": d.tableName,
+	})
+
+	namedStmt, err := d.db.PrepareNamed(query)
+	if err != nil {
+		panic(err)
+	}
+
+	return namedStmt
+}
+
+func getOrderingDirectives(ordering repository.Ordering) []string {
+	var (
+		OrderingCreatedAtFirst = []string{"created_at ASC", "priority DESC"}
+		OrderingPriorityFirst  = []string{"priority DESC", "created_at ASC"}
+	)
+
+	if orderingDirectives, ok := map[repository.Ordering][]string{
+		repository.OrderingCreatedAtFirst: OrderingCreatedAtFirst,
+		repository.OrderingPriorityFirst:  OrderingPriorityFirst,
+	}[ordering]; ok {
+		return orderingDirectives
+	}
+
+	return OrderingCreatedAtFirst
+}
+
 func sliceToPostgreSQLValueList[T any](slice []T) string {
 	stringSlice := make([]string, 0, len(slice))
 
@@ -419,4 +407,24 @@ func sliceToPostgreSQLValueList[T any](slice []T) string {
 	}
 
 	return fmt.Sprintf("'%s'", strings.Join(stringSlice, "','"))
+}
+
+func statusTypeName(prefix string) string {
+	const statusTypeName = "task_status"
+
+	if len(prefix) > 0 {
+		return prefix + "_" + statusTypeName
+	}
+
+	return statusTypeName
+}
+
+func tableName(prefix string) string {
+	const tableName = "tasks"
+
+	if len(prefix) > 0 {
+		return prefix + "_" + tableName
+	}
+
+	return tableName
 }

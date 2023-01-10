@@ -8,7 +8,7 @@ import (
 	model "github.com/greencoda/tasq/internal/model"
 	mock "github.com/stretchr/testify/mock"
 
-	sql "database/sql"
+	repository "github.com/greencoda/tasq/pkg/repository"
 
 	time "time"
 
@@ -39,22 +39,6 @@ func (_m *IRepository) CleanTasks(ctx context.Context, minimumAge time.Duration)
 	}
 
 	return r0, r1
-}
-
-// DB provides a mock function with given fields:
-func (_m *IRepository) DB() *sql.DB {
-	ret := _m.Called()
-
-	var r0 *sql.DB
-	if rf, ok := ret.Get(0).(func() *sql.DB); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*sql.DB)
-		}
-	}
-
-	return r0
 }
 
 // DeleteTask provides a mock function with given fields: ctx, task
@@ -109,11 +93,11 @@ func (_m *IRepository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visib
 }
 
 // PollTasks provides a mock function with given fields: ctx, types, queues, visibilityTimeout, ordering, limit
-func (_m *IRepository) PollTasks(ctx context.Context, types []string, queues []string, visibilityTimeout time.Duration, ordering []string, limit int) ([]*model.Task, error) {
+func (_m *IRepository) PollTasks(ctx context.Context, types []string, queues []string, visibilityTimeout time.Duration, ordering repository.Ordering, limit int) ([]*model.Task, error) {
 	ret := _m.Called(ctx, types, queues, visibilityTimeout, ordering, limit)
 
 	var r0 []*model.Task
-	if rf, ok := ret.Get(0).(func(context.Context, []string, []string, time.Duration, []string, int) []*model.Task); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []string, []string, time.Duration, repository.Ordering, int) []*model.Task); ok {
 		r0 = rf(ctx, types, queues, visibilityTimeout, ordering, limit)
 	} else {
 		if ret.Get(0) != nil {
@@ -122,7 +106,7 @@ func (_m *IRepository) PollTasks(ctx context.Context, types []string, queues []s
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, []string, []string, time.Duration, []string, int) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, []string, []string, time.Duration, repository.Ordering, int) error); ok {
 		r1 = rf(ctx, types, queues, visibilityTimeout, ordering, limit)
 	} else {
 		r1 = ret.Error(1)
@@ -154,13 +138,13 @@ func (_m *IRepository) RegisterError(ctx context.Context, task *model.Task, errT
 	return r0, r1
 }
 
-// RegisterFailure provides a mock function with given fields: ctx, task
-func (_m *IRepository) RegisterFailure(ctx context.Context, task *model.Task) (*model.Task, error) {
-	ret := _m.Called(ctx, task)
+// RegisterFinish provides a mock function with given fields: ctx, task, finishStatus
+func (_m *IRepository) RegisterFinish(ctx context.Context, task *model.Task, finishStatus model.TaskStatus) (*model.Task, error) {
+	ret := _m.Called(ctx, task, finishStatus)
 
 	var r0 *model.Task
-	if rf, ok := ret.Get(0).(func(context.Context, *model.Task) *model.Task); ok {
-		r0 = rf(ctx, task)
+	if rf, ok := ret.Get(0).(func(context.Context, *model.Task, model.TaskStatus) *model.Task); ok {
+		r0 = rf(ctx, task, finishStatus)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*model.Task)
@@ -168,8 +152,8 @@ func (_m *IRepository) RegisterFailure(ctx context.Context, task *model.Task) (*
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, *model.Task) error); ok {
-		r1 = rf(ctx, task)
+	if rf, ok := ret.Get(1).(func(context.Context, *model.Task, model.TaskStatus) error); ok {
+		r1 = rf(ctx, task, finishStatus)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -179,29 +163,6 @@ func (_m *IRepository) RegisterFailure(ctx context.Context, task *model.Task) (*
 
 // RegisterStart provides a mock function with given fields: ctx, task
 func (_m *IRepository) RegisterStart(ctx context.Context, task *model.Task) (*model.Task, error) {
-	ret := _m.Called(ctx, task)
-
-	var r0 *model.Task
-	if rf, ok := ret.Get(0).(func(context.Context, *model.Task) *model.Task); ok {
-		r0 = rf(ctx, task)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.Task)
-		}
-	}
-
-	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, *model.Task) error); ok {
-		r1 = rf(ctx, task)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// RegisterSuccess provides a mock function with given fields: ctx, task
-func (_m *IRepository) RegisterSuccess(ctx context.Context, task *model.Task) (*model.Task, error) {
 	ret := _m.Called(ctx, task)
 
 	var r0 *model.Task
