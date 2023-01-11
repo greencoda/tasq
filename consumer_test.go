@@ -151,7 +151,7 @@ func (s *ConsumerTestSuite) TestStartStopTwice() {
 	// Wait for goroutine to actually return and output log message
 	s.tasqConsumer.GetWaitGroup().Wait()
 
-	assert.Equal(s.T(), "error polling for tasks: repository error\nprocessing stopped\n", s.logBuffer.String())
+	assert.Equal(s.T(), "error polling for tasks: could not poll tasks: repository error\nprocessing stopped\n", s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestConsumption() {
@@ -299,7 +299,7 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	// Wait for goroutine to actually return and output log message
 	s.tasqConsumer.GetWaitGroup().Wait()
 
-	assert.Equal(s.T(), "error pinging active tasks: repository error\nprocessing stopped\n", s.logBuffer.String())
+	assert.Equal(s.T(), "error pinging active tasks: could not ping tasks: repository error\nprocessing stopped\n", s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
