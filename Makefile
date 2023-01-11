@@ -1,4 +1,4 @@
-.PHONY: deps mocks test test-cover
+.PHONY: deps lint mocks test test-cover
 .SILENT: test test-cover
 
 BINARY_NAME = crimson
