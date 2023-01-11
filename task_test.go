@@ -23,8 +23,6 @@ type TaskTestSuite struct {
 }
 
 func TestTaskTestSuite(t *testing.T) {
-	t.Parallel()
-
 	suite.Run(t, new(TaskTestSuite))
 }
 

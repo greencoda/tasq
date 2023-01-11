@@ -12,13 +12,12 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-var ctx = context.Background()
-
 type ProducterTestSuite struct {
 	suite.Suite
 	mockRepository *mocks.IRepository
 	tasqClient     *tasq.Client
 	tasqProducer   *tasq.Producer
+	testTask       *tasq.Task
 }
 
 func TestProducterTestSuite(t *testing.T) {
@@ -34,6 +33,13 @@ func (s *ProducterTestSuite) SetupTest() {
 	require.NotNil(s.T(), s.tasqClient)
 
 	s.tasqProducer = s.tasqClient.NewProducer()
+	require.NotNil(s.T(), s.tasqProducer)
+
+	testArgs := "testData"
+	testTask, err := tasq.NewTask("testTask", testArgs, "testQueue", 100, 5)
+	require.Nil(s.T(), err)
+
+	s.testTask = testTask
 }
 
 func (s *ProducterTestSuite) TestNewProducer() {
@@ -41,14 +47,11 @@ func (s *ProducterTestSuite) TestNewProducer() {
 }
 
 func (s *ProducterTestSuite) TestSubmitSuccessful() {
-	var (
-		testArgs    = "testData"
-		testTask, _ = tasq.NewTask("testTask", testArgs, "testQueue", 100, 5)
-	)
+	ctx := context.Background()
 
-	s.mockRepository.On("SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")).Return(testTask, nil)
+	s.mockRepository.On("SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")).Return(s.testTask, nil)
 
-	task, err := s.tasqProducer.Submit(ctx, testTask.Type, testArgs, testTask.Queue, testTask.Priority, testTask.MaxReceives)
+	task, err := s.tasqProducer.Submit(ctx, s.testTask.Type, s.testTask.Args, s.testTask.Queue, s.testTask.Priority, s.testTask.MaxReceives)
 
 	assert.NotNil(s.T(), task)
 	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")))
@@ -57,6 +60,7 @@ func (s *ProducterTestSuite) TestSubmitSuccessful() {
 
 func (s *ProducterTestSuite) TestSubmitUnsuccessful() {
 	var (
+		ctx         = context.Background()
 		testArgs    = "testData"
 		testTask, _ = tasq.NewTask("testTask", testArgs, "testQueue", 100, 5)
 	)
@@ -71,6 +75,8 @@ func (s *ProducterTestSuite) TestSubmitUnsuccessful() {
 }
 
 func (s *ProducterTestSuite) TestSubmitInvalidpriority() {
+	ctx := context.Background()
+
 	task, err := s.tasqProducer.Submit(ctx, "testData", nil, "testQueue", 100, 5)
 
 	assert.Nil(s.T(), task)

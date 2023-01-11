@@ -19,7 +19,17 @@ import (
 
 const driverName = "mysql"
 
-var errUnexpectedDataSourceType = errors.New("unexpected dataSource type")
+var (
+	errUnexpectedDataSourceType   = errors.New("unexpected dataSource type")
+	errFailedToBeginTx            = errors.New("failed to begin transaction")
+	errFailedToCommitTx           = errors.New("failed to commit transaction")
+	errFailedToExecuteSelect      = errors.New("failed to execute select query")
+	errFailedToExecuteUpdate      = errors.New("failed to execute update query")
+	errFailedToExecuteDelete      = errors.New("failed to execute delete query")
+	errFailedToExecuteInsert      = errors.New("failed to execute insert query")
+	errFailedToExecuteCreateTable = errors.New("failed to execute create table query")
+	errFailedGetRowsAffected      = errors.New("failed to get rows affected by query")
+)
 
 // Repository implements the menthods necessary for tasq to work in MySQL.
 type Repository struct {
@@ -93,7 +103,7 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return []*tasq.Task{}, fmt.Errorf("failed to begin transaction for PingTasks: %w", err)
+		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -108,7 +118,7 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 
 	_, err = tx.ExecContext(ctx, updatePingedTasksQuery, updatePingedTasksArgs...)
 	if err != nil {
-		return []*tasq.Task{}, fmt.Errorf("failed to execute query for PingTasks: %w", err)
+		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
 	}
 
 	var (
@@ -120,12 +130,12 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 
 	err = tx.SelectContext(ctx, &pingedMySQLTasks, selectPingedTasksQuery, selectPingedTasksArgs...)
 	if err != nil {
-		return []*tasq.Task{}, err
+		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return []*tasq.Task{}, err
+		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTasksToTasks(pingedMySQLTasks), nil
@@ -170,7 +180,7 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return []*tasq.Task{}, err
+		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -190,7 +200,7 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 
 	err = tx.SelectContext(ctx, &polledTaskIDs, selectPolledTasksQuery, selectPolledTasksArgs...)
 	if err != nil {
-		return []*tasq.Task{}, err
+		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
 	}
 
 	if len(polledTaskIDs) == 0 {
@@ -205,7 +215,7 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 
 	_, err = tx.ExecContext(ctx, updatePolledTasksQuery, updatePolledTasksArgs...)
 	if err != nil {
-		return []*tasq.Task{}, err
+		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
 	}
 
 	var (
@@ -217,12 +227,12 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 
 	err = tx.SelectContext(ctx, &polledMySQLTasks, selectUpdatedTasksQuery, selectUpdatedTasksArgs...)
 	if err != nil {
-		return []*tasq.Task{}, err
+		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return []*tasq.Task{}, err
+		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTasksToTasks(polledMySQLTasks), nil
@@ -247,12 +257,12 @@ func (d *Repository) CleanTasks(ctx context.Context, cleanAge time.Duration) (in
 
 	result, err := d.db.ExecContext(ctx, cleanTasksQuery, cleanTasksArgs...)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%s: %w", errFailedToExecuteDelete, err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%s: %w", errFailedGetRowsAffected, err)
 	}
 
 	return rowsAffected, nil
@@ -278,7 +288,7 @@ func (d *Repository) RegisterStart(ctx context.Context, task *tasq.Task) (*tasq.
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -295,7 +305,7 @@ func (d *Repository) RegisterStart(ctx context.Context, task *tasq.Task) (*tasq.
 
 	_, err = tx.ExecContext(ctx, updateTaskQuery, updateTaskArgs...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
 	}
 
 	selectUpdatedTaskQuery, selectUpdatedTaskArgs := d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
@@ -305,12 +315,12 @@ func (d *Repository) RegisterStart(ctx context.Context, task *tasq.Task) (*tasq.
 	err = tx.QueryRowxContext(ctx, selectUpdatedTaskQuery, selectUpdatedTaskArgs...).
 		StructScan(mySQLTask)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTask.toTask(), nil
@@ -334,7 +344,7 @@ func (d *Repository) RegisterError(ctx context.Context, task *tasq.Task, errTask
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -349,7 +359,7 @@ func (d *Repository) RegisterError(ctx context.Context, task *tasq.Task, errTask
 
 	_, err = tx.ExecContext(ctx, updateTaskQuery, updateTaskArgs...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
 	}
 
 	selectUpdatedTaskQuery, selectUpdatedTaskArgs := d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
@@ -359,12 +369,12 @@ func (d *Repository) RegisterError(ctx context.Context, task *tasq.Task, errTask
 	err = tx.QueryRowxContext(ctx, selectUpdatedTaskQuery, selectUpdatedTaskArgs...).
 		StructScan(mySQLTask)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTask.toTask(), nil
@@ -390,7 +400,7 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finish
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -407,7 +417,7 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finish
 
 	_, err = tx.ExecContext(ctx, updateTasksQuery, updateTasksArgs...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
 	}
 
 	selectUpdatedTasksQuery, selectUpdatedTasksArgs := d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
@@ -417,12 +427,12 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finish
 	err = tx.QueryRowxContext(ctx, selectUpdatedTasksQuery, selectUpdatedTasksArgs...).
 		StructScan(mySQLTask)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTask.toTask(), nil
@@ -445,7 +455,7 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -466,7 +476,7 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 
 	_, err = tx.ExecContext(ctx, insertTaskQuery, insertTaskArgs...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteInsert, err)
 	}
 
 	selectInsertedTaskQuery, selectInsertedTaskArgs := d.getQueryWithTableName(selectInsertedTaskSQLTemplate, map[string]any{
@@ -476,12 +486,12 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 	err = tx.QueryRowxContext(ctx, selectInsertedTaskQuery, selectInsertedTaskArgs...).
 		StructScan(mySQLTask)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTask.toTask(), nil
@@ -503,8 +513,11 @@ func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task) error {
 	)
 
 	_, err := d.db.ExecContext(ctx, deleteTaskQuery, deleteTaskArgs...)
+	if err != nil {
+		return fmt.Errorf("%s: %w", errFailedToExecuteDelete, err)
+	}
 
-	return err
+	return nil
 }
 
 // RequeueTask marks a task as new, so it can be picked up again.
@@ -525,7 +538,7 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -540,7 +553,7 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 
 	_, err = tx.ExecContext(ctx, updateTaskQuery, updateTaskArgs...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
 	}
 
 	selectUpdatedTaskQuery, selectUpdatedTaskArgs := d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
@@ -550,12 +563,12 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 	err = tx.QueryRowxContext(ctx, selectUpdatedTaskQuery, selectUpdatedTaskArgs...).
 		StructScan(mySQLTask)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTask.toTask(), err
@@ -604,7 +617,7 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 
 	_, err := d.db.ExecContext(ctx, query)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", errFailedToExecuteCreateTable, err)
 	}
 
 	return nil

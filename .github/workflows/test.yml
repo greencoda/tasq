@@ -7,7 +7,6 @@ on:
     branches: [ "master" ]
 
 jobs:
-
   test:
     runs-on: ubuntu-latest
     steps:
@@ -22,6 +21,11 @@ jobs:
         
     - name: Setup Dependencies
       run: make deps && git diff-index --quiet HEAD || { >&2 echo "Stale go.{mod,sum} detected. This can be fixed with 'make deps'."; exit 1; }
+
+    - name: Lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: v1.50.1
 
     - name: Run Test
       run: make test

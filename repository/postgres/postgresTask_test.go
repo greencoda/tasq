@@ -9,6 +9,8 @@ import (
 )
 
 func TestStringToSQLNullString(t *testing.T) {
+	t.Parallel()
+
 	var (
 		emptyInput    = ""
 		nonEmptyInput = "test"
@@ -35,6 +37,8 @@ func TestStringToSQLNullString(t *testing.T) {
 }
 
 func TestParseNullableString(t *testing.T) {
+	t.Parallel()
+
 	var (
 		emptyInput = sql.NullString{
 			String: "",

@@ -31,7 +31,7 @@ func (s *CleanerTestSuite) SetupTest() {
 	s.tasqClient = tasq.NewClient(s.mockRepository)
 	require.NotNil(s.T(), s.tasqClient)
 
-	s.tasqCleaner = s.tasqClient.NewCleaner()
+	s.tasqCleaner = s.tasqClient.NewCleaner().WithTaskAge(time.Hour)
 }
 
 func (s *CleanerTestSuite) TestNewCleaner() {
@@ -41,13 +41,18 @@ func (s *CleanerTestSuite) TestNewCleaner() {
 func (s *CleanerTestSuite) TestClean() {
 	ctx := context.Background()
 
-	s.tasqCleaner.WithTaskAge(time.Hour)
-
-	s.mockRepository.On("CleanTasks", ctx, time.Hour).Return(int64(1), nil)
+	s.mockRepository.On("CleanTasks", ctx, time.Hour).Return(int64(1), nil).Once()
 
 	rowsAffected, err := s.tasqCleaner.Clean(ctx)
 
 	assert.Equal(s.T(), int64(1), rowsAffected)
 	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "CleanTasks", ctx, time.Hour))
 	assert.Nil(s.T(), err)
+
+	s.mockRepository.On("CleanTasks", ctx, time.Hour).Return(int64(0), errRepository).Once()
+	rowsAffected, err = s.tasqCleaner.Clean(ctx)
+
+	assert.Equal(s.T(), int64(0), rowsAffected)
+	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "CleanTasks", ctx, time.Hour))
+	assert.NotNil(s.T(), err)
 }

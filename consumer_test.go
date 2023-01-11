@@ -2,6 +2,7 @@ package tasq_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log"
 	"testing"
@@ -96,6 +97,8 @@ func (s *ConsumerTestSuite) TestLearnAndForget() {
 }
 
 func (s *ConsumerTestSuite) TestStartWithInvalidVisibilityTimeoutParam() {
+	ctx := context.Background()
+
 	s.tasqConsumer.
 		WithVisibilityTimeout(time.Second).
 		WithPollInterval(5 * time.Second)
@@ -108,6 +111,8 @@ func (s *ConsumerTestSuite) TestStartWithInvalidVisibilityTimeoutParam() {
 }
 
 func (s *ConsumerTestSuite) TestStartStopTwice() {
+	ctx := context.Background()
+
 	s.tasqConsumer.
 		WithQueues("testQueue")
 
@@ -118,6 +123,11 @@ func (s *ConsumerTestSuite) TestStartStopTwice() {
 
 	// Getting tasks
 	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Return([]*tasq.Task{}, nil)
+
+	// Polling fails on the first time
+	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 10).Return([]*tasq.Task{}, errRepository).Once()
+
+	// Polling succeeds on subsequent attempts
 	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 10).Return([]*tasq.Task{}, nil)
 
 	// Start up the consumer
@@ -141,10 +151,12 @@ func (s *ConsumerTestSuite) TestStartStopTwice() {
 	// Wait for goroutine to actually return and output log message
 	s.tasqConsumer.GetWaitGroup().Wait()
 
-	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
+	assert.Equal(s.T(), "error polling for tasks: repository error\nprocessing stopped\n", s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestConsumption() {
+	ctx := context.Background()
+
 	s.tasqConsumer.
 		WithQueues("testQueue")
 
@@ -185,7 +197,7 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	// First try - pinging fails
 	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Once().Return([]*tasq.Task{}, errRepository)
 
-	// First try - pinging succeeds
+	// Second try - pinging succeeds
 	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Once().Return([]*tasq.Task{}, nil)
 	s.mockRepository.On("PollTasks", ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 10).Return([]*tasq.Task{
 		successTestTask,
@@ -291,6 +303,8 @@ func (s *ConsumerTestSuite) TestConsumption() {
 }
 
 func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
+	ctx := context.Background()
+
 	s.tasqConsumer.
 		WithQueues("testQueue").
 		WithAutoDeleteOnSuccess(true)
@@ -348,6 +362,8 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 }
 
 func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
+	ctx := context.Background()
+
 	s.tasqConsumer.
 		WithQueues("testQueue").
 		WithPollStrategy(tasq.PollStrategyByPriority)
@@ -398,6 +414,8 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 }
 
 func (s *ConsumerTestSuite) TestConsumptionWithUnknownPollStrategy() {
+	ctx := context.Background()
+
 	s.tasqConsumer.
 		WithQueues("testQueue").
 		WithPollStrategy(tasq.PollStrategy("pollByMagic"))
@@ -425,6 +443,8 @@ func (s *ConsumerTestSuite) TestConsumptionWithUnknownPollStrategy() {
 }
 
 func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
+	ctx := context.Background()
+
 	s.tasqConsumer.
 		WithQueues("testQueue")
 
@@ -470,6 +490,8 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 		WithMaxActiveTasks(2)
 
 	var (
+		ctx = context.Background()
+
 		testTaskID1 = uuid.MustParse("1ada263f-61d5-44ac-b99d-2d5ad4f249de")
 		testTaskID2 = uuid.MustParse("28032675-bc13-4dcd-8ec6-6aa430fc466a")
 

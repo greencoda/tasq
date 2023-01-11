@@ -14,7 +14,10 @@ linters:
   - lll
   - revive
   - varnamelen
-  - wrapcheck
+
+linters-settings:
+  paralleltest:
+    ignore-missing: true
 
 issues:
   exclude-use-default: false

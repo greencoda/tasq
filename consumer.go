@@ -18,6 +18,8 @@ var (
 	ErrConsumerAlreadyRunning    = errors.New("consumer has already been started")
 	ErrConsumerAlreadyStopped    = errors.New("consumer has already been stopped")
 	ErrCouldNotActivateTasks     = errors.New("a number of tasks could not be activated")
+	ErrCouldNotPollTasks         = errors.New("could not poll tasks")
+	ErrCouldNotPingTasks         = errors.New("could not ping tasks")
 	ErrTaskTypeAlreadyLearned    = errors.New("task with this type already learned")
 	ErrTaskTypeNotFound          = errors.New("task with this type not found")
 	ErrTaskTypeNotKnown          = errors.New("task with this type is not known by this consumer")
@@ -423,13 +425,21 @@ func (c *Consumer) pollForTasks(ctx context.Context) ([]*Task, error) {
 		return nil, err
 	}
 
-	return c.client.repository.PollTasks(ctx, c.getKnownTaskTypes(), c.queues, c.visibilityTimeout, pollOrdering, c.getPollQuantity())
+	tasks, err := c.client.repository.PollTasks(ctx, c.getKnownTaskTypes(), c.queues, c.visibilityTimeout, pollOrdering, c.getPollQuantity())
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrCouldNotPollTasks, err)
+	}
+
+	return tasks, nil
 }
 
 func (c *Consumer) pingActiveTasks(ctx context.Context) error {
 	_, err := c.client.repository.PingTasks(ctx, c.getActiveTaskIDs(), c.visibilityTimeout)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrCouldNotPingTasks, err)
+	}
 
-	return err
+	return nil
 }
 
 func (c *Consumer) activateTasks(ctx context.Context, tasks []*Task) error {

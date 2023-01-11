@@ -19,7 +19,14 @@ import (
 
 const driverName = "postgres"
 
-var errUnexpectedDataSource = errors.New("unexpected dataSource type")
+var (
+	errUnexpectedDataSourceType   = errors.New("unexpected dataSource type")
+	errFailedToExecuteUpdate      = errors.New("failed to execute update query")
+	errFailedToExecuteDelete      = errors.New("failed to execute delete query")
+	errFailedToExecuteInsert      = errors.New("failed to execute insert query")
+	errFailedToExecuteCreateTable = errors.New("failed to execute create table query")
+	errFailedToExecuteCreateType  = errors.New("failed to execute create type query")
+)
 
 // Repository implements the menthods necessary for tasq to work in PostgreSQL.
 type Repository struct {
@@ -37,7 +44,7 @@ func NewRepository(dataSource any, prefix string) (*Repository, error) {
 		return newRepositoryFromDB(d, prefix)
 	}
 
-	return nil, fmt.Errorf("%w: %T", errUnexpectedDataSource, dataSource)
+	return nil, fmt.Errorf("%w: %T", errUnexpectedDataSourceType, dataSource)
 }
 
 func newRepositoryFromDSN(dsn string, prefix string) (*Repository, error) {
@@ -206,7 +213,7 @@ func (d *Repository) RegisterStart(ctx context.Context, task *tasq.Task) (*tasq.
 		}).
 		StructScan(updatedTask)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
 	}
 
 	return updatedTask.toTask(), nil
@@ -231,7 +238,7 @@ func (d *Repository) RegisterError(ctx context.Context, task *tasq.Task, errTask
 		}).
 		StructScan(updatedTask)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
 	}
 
 	return updatedTask.toTask(), nil
@@ -260,7 +267,7 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finish
 		}).
 		StructScan(updatedTask)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
 	}
 
 	return updatedTask.toTask(), nil
@@ -291,7 +298,7 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 		}).
 		StructScan(postgresTask)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteInsert, err)
 	}
 
 	return postgresTask.toTask(), nil
@@ -309,8 +316,11 @@ func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task) error {
 	_, err := stmt.ExecContext(ctx, map[string]any{
 		"taskID": task.ID,
 	})
+	if err != nil {
+		return fmt.Errorf("%s: %w", errFailedToExecuteDelete, err)
+	}
 
-	return err
+	return nil
 }
 
 // RequeueTask marks a task as new, so it can be picked up again.
@@ -332,7 +342,7 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 		}).
 		StructScan(updatedTask)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
 	}
 
 	return updatedTask.toTask(), err
@@ -354,7 +364,7 @@ func (d *Repository) migrateStatus(ctx context.Context) error {
 
 	_, err := d.db.ExecContext(ctx, query)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", errFailedToExecuteCreateType, err)
 	}
 
 	return nil
@@ -384,7 +394,7 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 
 	_, err := d.db.ExecContext(ctx, query)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", errFailedToExecuteCreateTable, err)
 	}
 
 	return nil
