@@ -1,11 +1,12 @@
-package tasq
+package tasq_test
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	mock_repository "github.com/greencoda/tasq/internal/mocks/repository"
+	"github.com/greencoda/tasq"
+	"github.com/greencoda/tasq/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -13,18 +14,24 @@ import (
 
 type CleanerTestSuite struct {
 	suite.Suite
-	mockRepository *mock_repository.IRepository
-	tasqClient     *Client
-	tasqCleaner    *Cleaner
+	mockRepository *mocks.IRepository
+	tasqClient     *tasq.Client
+	tasqCleaner    *tasq.Cleaner
+}
+
+func TestCleanerTestSuite(t *testing.T) {
+	t.Parallel()
+
+	suite.Run(t, new(CleanerTestSuite))
 }
 
 func (s *CleanerTestSuite) SetupTest() {
-	s.mockRepository = mock_repository.NewIRepository(s.T())
+	s.mockRepository = mocks.NewIRepository(s.T())
 
-	s.tasqClient = NewClient(context.Background(), s.mockRepository)
+	s.tasqClient = tasq.NewClient(s.mockRepository)
 	require.NotNil(s.T(), s.tasqClient)
 
-	s.tasqCleaner = s.tasqClient.NewCleaner()
+	s.tasqCleaner = s.tasqClient.NewCleaner().WithTaskAge(time.Hour)
 }
 
 func (s *CleanerTestSuite) TestNewCleaner() {
@@ -32,17 +39,20 @@ func (s *CleanerTestSuite) TestNewCleaner() {
 }
 
 func (s *CleanerTestSuite) TestClean() {
-	s.tasqCleaner.WithTaskAge(time.Hour)
+	ctx := context.Background()
 
-	s.mockRepository.On("CleanTasks", s.tasqClient.getContext(), time.Hour).Return(int64(1), nil)
+	s.mockRepository.On("CleanTasks", ctx, time.Hour).Return(int64(1), nil).Once()
 
-	rowsAffected, err := s.tasqCleaner.Clean()
+	rowsAffected, err := s.tasqCleaner.Clean(ctx)
 
 	assert.Equal(s.T(), int64(1), rowsAffected)
-	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "CleanTasks", s.tasqClient.getContext(), time.Hour))
+	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "CleanTasks", ctx, time.Hour))
 	assert.Nil(s.T(), err)
-}
 
-func TestCleanerTestSuite(t *testing.T) {
-	suite.Run(t, new(CleanerTestSuite))
+	s.mockRepository.On("CleanTasks", ctx, time.Hour).Return(int64(0), errRepository).Once()
+	rowsAffected, err = s.tasqCleaner.Clean(ctx)
+
+	assert.Equal(s.T(), int64(0), rowsAffected)
+	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "CleanTasks", ctx, time.Hour))
+	assert.NotNil(s.T(), err)
 }

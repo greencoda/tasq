@@ -1,6 +1,7 @@
 package tasq
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,176 +11,205 @@ import (
 
 	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
-	"github.com/greencoda/tasq/internal/model"
-	"github.com/greencoda/tasq/internal/repository"
 )
 
-// Logger is the interface used for event logging during task consumption
+// Collection of consumer errors.
+var (
+	ErrConsumerAlreadyRunning    = errors.New("consumer has already been started")
+	ErrConsumerAlreadyStopped    = errors.New("consumer has already been stopped")
+	ErrCouldNotActivateTasks     = errors.New("a number of tasks could not be activated")
+	ErrCouldNotPollTasks         = errors.New("could not poll tasks")
+	ErrCouldNotPingTasks         = errors.New("could not ping tasks")
+	ErrTaskTypeAlreadyLearned    = errors.New("task with this type already learned")
+	ErrTaskTypeNotFound          = errors.New("task with this type not found")
+	ErrTaskTypeNotKnown          = errors.New("task with this type is not known by this consumer")
+	ErrUnknownPollStrategy       = errors.New("unknown poll strategy")
+	ErrVisibilityTimeoutTooShort = errors.New("visibility timeout must be longer than poll interval")
+)
+
+// Logger is the interface used for event logging during task consumption.
 type Logger interface {
 	Print(v ...any)
 	Printf(format string, v ...any)
 }
 
-type handlerFunc func(task Task) error
+type handlerFunc func(task *Task) error
 
 type handlerFuncMap map[string]handlerFunc
 
-// PollStrategy is the label assigned to the ordering by which tasks are polled for consumption
+// PollStrategy is the label assigned to the ordering by which tasks are polled for consumption.
 type PollStrategy string
 
+// Collection of pollStrategies.
 const (
 	PollStrategyByCreatedAt PollStrategy = "pollByCreatedAt" // Poll by oldest tasks first
 	PollStrategyByPriority  PollStrategy = "pollByPriority"  // Poll by highest priority task first
 )
 
-var (
+const (
 	defaultChannelSize         = 10
 	defaultPollInterval        = 5 * time.Second
 	defaultPollStrategy        = PollStrategyByCreatedAt
 	defaultPollLimit           = 10
 	defaultAutoDeleteOnSuccess = false
 	defaultMaxActiveTasks      = 10
-	defaultQueues              = []string{""}
 	defaultVisibilityTimeout   = 15 * time.Second
-	NoopLogger                 = log.New(io.Discard, "", 0) // discards the log messages written to it
 )
 
+// NoopLogger discards the log messages written to it.
+func NoopLogger() *log.Logger {
+	return log.New(io.Discard, "", 0)
+}
+
 // Consumer is a service instance created by a Client with reference to that client
-// and the various parameters that define the task consumption behaviour
+// and the various parameters that define the task consumption behaviour.
 type Consumer struct {
+	running             bool
+	autoDeleteOnSuccess bool
+	channelSize         int
+	pollLimit           int
+	maxActiveTasks      int
+	pollInterval        time.Duration
+	pollStrategy        PollStrategy
+
 	wg sync.WaitGroup
 
-	c      chan *func()
-	client *Client
-	clock  clock.Clock
-	logger Logger
+	channel chan *func()
+	client  *Client
+	clock   clock.Clock
+	logger  Logger
 
 	handlerFuncMap handlerFuncMap
 
-	running     bool
 	activeTasks map[uuid.UUID]struct{}
 
-	channelSize         int
-	pollInterval        time.Duration
-	pollLimit           int
-	pollStrategy        PollStrategy
-	autoDeleteOnSuccess bool
-	maxActiveTasks      int
-	visibilityTimeout   time.Duration
-	queues              []string
+	visibilityTimeout time.Duration
+	queues            []string
 
 	stop chan struct{}
 }
 
-// NewCleaner creates a new consumer with a reference to the original tasq client
-// and default consumer parameters
+// NewConsumer creates a new consumer with a reference to the original tasq client
+// and default consumer parameters.
 func (c *Client) NewConsumer() *Consumer {
 	return &Consumer{
-		c:      nil,
-		client: c,
-		clock:  clock.New(),
-		logger: NoopLogger,
+		running:             false,
+		autoDeleteOnSuccess: defaultAutoDeleteOnSuccess,
+		channelSize:         defaultChannelSize,
+		pollLimit:           defaultPollLimit,
+		maxActiveTasks:      defaultMaxActiveTasks,
+		pollInterval:        defaultPollInterval,
+		pollStrategy:        defaultPollStrategy,
+
+		wg: sync.WaitGroup{},
+
+		channel: nil,
+		client:  c,
+		clock:   clock.New(),
+		logger:  NoopLogger(),
 
 		handlerFuncMap: make(handlerFuncMap),
 
 		activeTasks: make(map[uuid.UUID]struct{}),
 
-		channelSize:         defaultChannelSize,
-		pollInterval:        defaultPollInterval,
-		pollLimit:           defaultPollLimit,
-		pollStrategy:        defaultPollStrategy,
-		autoDeleteOnSuccess: defaultAutoDeleteOnSuccess,
-		maxActiveTasks:      defaultMaxActiveTasks,
-		visibilityTimeout:   defaultVisibilityTimeout,
-		queues:              defaultQueues,
+		visibilityTimeout: defaultVisibilityTimeout,
+		queues:            []string{""},
 
 		stop: make(chan struct{}, 1),
 	}
 }
 
-// WithChannelSize sets the size of the buffered channel used for outputting the polled messages to
+// WithChannelSize sets the size of the buffered channel used for outputting the polled messages to.
 //
-// default value: 10
+// Default value: 10.
 func (c *Consumer) WithChannelSize(channelSize int) *Consumer {
 	c.channelSize = channelSize
 
 	return c
 }
 
-// WithLogger sets the Logger interface that is used for event logging during task consumption
+// WithLogger sets the Logger interface that is used for event logging during task consumption.
 //
-// default value: NoopLogger
+// Default value: NoopLogger.
 func (c *Consumer) WithLogger(logger Logger) *Consumer {
 	c.logger = logger
+
 	return c
 }
 
 // WithPollInterval sets the interval at which the consumer will try and poll for new tasks to be executed
-// must not be greater than or equal to visibility timeout
+// must not be greater than or equal to visibility timeout.
 //
-// default value: 5 seconds
+// Default value: 5 seconds.
 func (c *Consumer) WithPollInterval(pollInterval time.Duration) *Consumer {
 	c.pollInterval = pollInterval
+
 	return c
 }
 
-// WithPollLimit sets the maximum number of messages polled from the task queue
+// WithPollLimit sets the maximum number of messages polled from the task queue.
 //
-// default value: 10
+// Default value: 10.
 func (c *Consumer) WithPollLimit(pollLimit int) *Consumer {
 	c.pollLimit = pollLimit
+
 	return c
 }
 
-// WithPollStrategy sets the ordering to be used when polling for tasks from the task queue
+// WithPollStrategy sets the ordering to be used when polling for tasks from the task queue.
 //
-// default value: PollStrategyByCreatedAt
+// Default value: PollStrategyByCreatedAt.
 func (c *Consumer) WithPollStrategy(pollStrategy PollStrategy) *Consumer {
 	c.pollStrategy = pollStrategy
+
 	return c
 }
 
 // WithAutoDeleteOnSuccess sets whether successful tasks should be automatically deleted from the task queue
-// by the consumer
+// by the consumer.
 //
-// default value: false
+// Default value: false.
 func (c *Consumer) WithAutoDeleteOnSuccess(autoDeleteOnSuccess bool) *Consumer {
 	c.autoDeleteOnSuccess = autoDeleteOnSuccess
+
 	return c
 }
 
 // WithMaxActiveTasks sets the maximum number of tasks a consumer can have enqueued at the same time
-// before polling for additional ones
+// before polling for additional ones.
 //
-// default value: 10
+// Default value: 10.
 func (c *Consumer) WithMaxActiveTasks(maxActiveTasks int) *Consumer {
 	c.maxActiveTasks = maxActiveTasks
+
 	return c
 }
 
 // WithVisibilityTimeout sets the duration by which each ping will extend a task's visibility timeout;
-// Once this timeout is up, a consumer instance may receive the task again
+// Once this timeout is up, a consumer instance may receive the task again.
 //
-// default value: 15 seconds
+// Default value: 15 seconds.
 func (c *Consumer) WithVisibilityTimeout(visibilityTimeout time.Duration) *Consumer {
 	c.visibilityTimeout = visibilityTimeout
+
 	return c
 }
 
-// WithQueues sets the queues from which the consumer may poll for tasks
+// WithQueues sets the queues from which the consumer may poll for tasks.
 //
-// default value: empty slice of strings
+// Default value: empty slice of strings.
 func (c *Consumer) WithQueues(queues ...string) *Consumer {
 	c.queues = queues
+
 	return c
 }
 
-// Learn sets a handler function for the specified taskType;
+// Learn sets a handler function for the specified taskType.
 // If override is false and a handler function is already set for the specified
-// taskType, it'll return an error
+// taskType, it'll return an error.
 func (c *Consumer) Learn(taskType string, f handlerFunc, override bool) error {
 	if _, exists := c.handlerFuncMap[taskType]; exists && !override {
-		return fmt.Errorf("task with the type '%s' already learned", taskType)
+		return fmt.Errorf("%w: %s", ErrTaskTypeAlreadyLearned, taskType)
 	}
 
 	c.handlerFuncMap[taskType] = f
@@ -188,11 +218,11 @@ func (c *Consumer) Learn(taskType string, f handlerFunc, override bool) error {
 }
 
 // Forget removes a handler function for the specified taskType from the map of
-// learned handler functions;
-// If the specified taskType does not exist, it'll return an error
+// learned handler functions.
+// If the specified taskType does not exist, it'll return an error.
 func (c *Consumer) Forget(taskType string) error {
 	if _, exists := c.handlerFuncMap[taskType]; !exists {
-		return fmt.Errorf("task with the type '%s' not found", taskType)
+		return fmt.Errorf("%w: %s", ErrTaskTypeNotFound, taskType)
 	}
 
 	delete(c.handlerFuncMap, taskType)
@@ -201,31 +231,31 @@ func (c *Consumer) Forget(taskType string) error {
 }
 
 // Start launches the go routine which manages the pinging and polling of tasks
-// for the consumer, or returns an error if the consumer is not properly configured
-func (c *Consumer) Start() error {
+// for the consumer, or returns an error if the consumer is not properly configured.
+func (c *Consumer) Start(ctx context.Context) error {
 	if c.isRunning() {
-		return errors.New("consumer has already been started")
+		return ErrConsumerAlreadyRunning
 	}
 
 	if c.visibilityTimeout <= c.pollInterval {
-		return fmt.Errorf("visibility timeout '%v' must be longer than poll interval '%v'", c.visibilityTimeout, c.pollInterval)
+		return ErrVisibilityTimeoutTooShort
 	}
 
 	c.setRunning(true)
 
-	c.c = make(chan *func(), c.channelSize)
+	c.channel = make(chan *func(), c.channelSize)
 
 	ticker := c.clock.Ticker(c.pollInterval)
 
-	go c.processLoop(ticker)
+	go c.processLoop(ctx, ticker)
 
 	return nil
 }
 
-// Stop sends the termination signal to the consumer so it'll no longer poll for news tasks
+// Stop sends the termination signal to the consumer so it'll no longer poll for news tasks.
 func (c *Consumer) Stop() error {
 	if !c.isRunning() {
-		return errors.New("consumer has already been stopped")
+		return ErrConsumerAlreadyStopped
 	}
 
 	c.stop <- struct{}{}
@@ -233,9 +263,9 @@ func (c *Consumer) Stop() error {
 	return nil
 }
 
-// Channel returns a read-only channel where the polled jobs can be read from
+// Channel returns a read-only channel where the polled jobs can be read from.
 func (c *Consumer) Channel() <-chan *func() {
-	return c.c
+	return c.channel
 }
 
 func (c *Consumer) isRunning() bool {
@@ -246,34 +276,34 @@ func (c *Consumer) setRunning(isRunning bool) {
 	c.running = isRunning
 }
 
-func (c *Consumer) registerTaskStart(task *model.Task) {
-	_, err := c.client.getRepository().RegisterStart(c.client.getContext(), task)
+func (c *Consumer) registerTaskStart(ctx context.Context, task *Task) {
+	_, err := c.client.repository.RegisterStart(ctx, task)
 	if err != nil {
 		panic(err)
 	}
 }
 
-func (c *Consumer) registerTaskError(task *model.Task, taskError error) {
-	_, err := c.client.getRepository().RegisterError(c.client.getContext(), task, taskError)
+func (c *Consumer) registerTaskError(ctx context.Context, task *Task, taskError error) {
+	_, err := c.client.repository.RegisterError(ctx, task, taskError)
 	if err != nil {
 		panic(err)
 	}
 
 	if task.MaxReceives > 0 && (task.ReceiveCount) >= task.MaxReceives {
-		c.registerTaskFail(task)
+		c.registerTaskFail(ctx, task)
 	} else {
-		c.requeueTask(task)
+		c.requeueTask(ctx, task)
 	}
 }
 
-func (c *Consumer) registerTaskSuccess(task *model.Task) {
+func (c *Consumer) registerTaskSuccess(ctx context.Context, task *Task) {
 	if c.autoDeleteOnSuccess {
-		err := c.client.getRepository().DeleteTask(c.client.getContext(), task)
+		err := c.client.repository.DeleteTask(ctx, task)
 		if err != nil {
 			panic(err)
 		}
 	} else {
-		_, err := c.client.getRepository().RegisterSuccess(c.client.getContext(), task)
+		_, err := c.client.repository.RegisterFinish(ctx, task, StatusSuccessful)
 		if err != nil {
 			panic(err)
 		}
@@ -282,8 +312,8 @@ func (c *Consumer) registerTaskSuccess(task *model.Task) {
 	c.removeFromActiveTasks(task)
 }
 
-func (c *Consumer) registerTaskFail(task *model.Task) {
-	_, err := c.client.getRepository().RegisterFailure(c.client.getContext(), task)
+func (c *Consumer) registerTaskFail(ctx context.Context, task *Task) {
+	_, err := c.client.repository.RegisterFinish(ctx, task, StatusFailed)
 	if err != nil {
 		panic(err)
 	}
@@ -291,8 +321,8 @@ func (c *Consumer) registerTaskFail(task *model.Task) {
 	c.removeFromActiveTasks(task)
 }
 
-func (c *Consumer) requeueTask(task *model.Task) {
-	_, err := c.client.getRepository().RequeueTask(c.client.getContext(), task)
+func (c *Consumer) requeueTask(ctx context.Context, task *Task) {
+	_, err := c.client.repository.RequeueTask(ctx, task)
 	if err != nil {
 		panic(err)
 	}
@@ -304,7 +334,7 @@ func (c *Consumer) getActiveTaskCount() int {
 	return len(c.activeTasks)
 }
 
-func (c *Consumer) removeFromActiveTasks(task *model.Task) {
+func (c *Consumer) removeFromActiveTasks(task *Task) {
 	delete(c.activeTasks, task.ID)
 }
 
@@ -328,14 +358,14 @@ func (c *Consumer) getKnownTaskTypes() []string {
 	return taskTypes
 }
 
-func (c *Consumer) getPollOrdering() ([]string, error) {
+func (c *Consumer) getPollOrdering() (Ordering, error) {
 	switch c.pollStrategy {
 	case PollStrategyByCreatedAt:
-		return repository.OrderingCreatedAtFirst, nil
+		return OrderingCreatedAtFirst, nil
 	case PollStrategyByPriority:
-		return repository.OrderingPriorityFirst, nil
+		return OrderingPriorityFirst, nil
 	default:
-		return nil, fmt.Errorf("unknown poll strategy '%s'", c.pollStrategy)
+		return -1, fmt.Errorf("%w: %s", ErrUnknownPollStrategy, c.pollStrategy)
 	}
 }
 
@@ -349,7 +379,7 @@ func (c *Consumer) getPollQuantity() int {
 	return taskCapacity
 }
 
-func (c *Consumer) processLoop(ticker *clock.Ticker) {
+func (c *Consumer) processLoop(ctx context.Context, ticker *clock.Ticker) {
 	c.wg.Add(1)
 	defer c.wg.Done()
 	defer c.logger.Print("processing stopped")
@@ -360,18 +390,18 @@ func (c *Consumer) processLoop(ticker *clock.Ticker) {
 	for {
 		loopID++
 
-		err := c.pingActiveTasks()
+		err := c.pingActiveTasks(ctx)
 		if err != nil {
 			c.logger.Printf("error pinging active tasks: %s", err)
 		}
 
 		if c.isRunning() {
-			tasks, err := c.pollForTasks()
+			tasks, err := c.pollForTasks(ctx)
 			if err != nil {
 				c.logger.Printf("error polling for tasks: %s", err)
 			}
 
-			err = c.activateTasks(tasks)
+			err = c.activateTasks(ctx, tasks)
 			if err != nil {
 				c.logger.Printf("error activating tasks: %s", err)
 			}
@@ -382,75 +412,84 @@ func (c *Consumer) processLoop(ticker *clock.Ticker) {
 		select {
 		case <-c.stop:
 			c.setRunning(false)
-			close(c.c)
+			close(c.channel)
 		case <-ticker.C:
 			continue
 		}
 	}
 }
 
-func (c *Consumer) pollForTasks() ([]*model.Task, error) {
+func (c *Consumer) pollForTasks(ctx context.Context) ([]*Task, error) {
 	pollOrdering, err := c.getPollOrdering()
 	if err != nil {
 		return nil, err
 	}
 
-	return c.client.getRepository().PollTasks(c.client.getContext(), c.getKnownTaskTypes(), c.queues, c.visibilityTimeout, pollOrdering, c.getPollQuantity())
-}
-
-func (c *Consumer) pingActiveTasks() (err error) {
-	_, err = c.client.getRepository().PingTasks(c.client.getContext(), c.getActiveTaskIDs(), c.visibilityTimeout)
-
-	return err
-}
-
-func (c *Consumer) activateTasks(tasks []*model.Task) error {
-	var errors []error
-
-	for _, task := range tasks {
-		err := c.activateTask(task)
-		if err != nil {
-			errors = append(errors, err)
-			c.registerTaskFail(task)
-		}
+	tasks, err := c.client.repository.PollTasks(ctx, c.getKnownTaskTypes(), c.queues, c.visibilityTimeout, pollOrdering, c.getPollQuantity())
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrCouldNotPollTasks, err)
 	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf("%v tasks could not be activated", len(errors))
+	return tasks, nil
+}
+
+func (c *Consumer) pingActiveTasks(ctx context.Context) error {
+	_, err := c.client.repository.PingTasks(ctx, c.getActiveTaskIDs(), c.visibilityTimeout)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrCouldNotPingTasks, err)
 	}
 
 	return nil
 }
 
-func (c *Consumer) activateTask(task *model.Task) error {
-	job, err := c.createJobFromTask(task)
+func (c *Consumer) activateTasks(ctx context.Context, tasks []*Task) error {
+	var errors []error
+
+	for _, task := range tasks {
+		err := c.activateTask(ctx, task)
+		if err != nil {
+			errors = append(errors, err)
+
+			c.registerTaskFail(ctx, task)
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("%w: %v", ErrCouldNotActivateTasks, len(errors))
+	}
+
+	return nil
+}
+
+func (c *Consumer) activateTask(ctx context.Context, task *Task) error {
+	job, err := c.createJobFromTask(ctx, task)
 	if err != nil {
 		return err
 	}
 
 	c.activeTasks[task.ID] = struct{}{}
 
-	c.c <- job
+	c.channel <- job
 
 	return nil
 }
 
-func (c *Consumer) createJobFromTask(task *model.Task) (*func(), error) {
+func (c *Consumer) createJobFromTask(ctx context.Context, task *Task) (*func(), error) {
 	if handlerFunc, ok := c.handlerFuncMap[task.Type]; ok {
-		return c.newJob(c, handlerFunc, task), nil
+		return c.newJob(ctx, c, handlerFunc, task), nil
 	}
 
-	return nil, fmt.Errorf("task type '%s' is not known by this consumer", task.Type)
+	return nil, fmt.Errorf("%w: %s", ErrTaskTypeNotKnown, task.Type)
 }
 
-func (c *Consumer) newJob(consumer *Consumer, f handlerFunc, task *model.Task) *func() {
+func (c *Consumer) newJob(ctx context.Context, consumer *Consumer, f handlerFunc, task *Task) *func() {
 	job := func() {
-		consumer.registerTaskStart(task)
+		consumer.registerTaskStart(ctx, task)
 
 		if err := f(task); err == nil {
-			consumer.registerTaskSuccess(task)
+			consumer.registerTaskSuccess(ctx, task)
 		} else {
-			consumer.registerTaskError(task, err)
+			consumer.registerTaskError(ctx, task, err)
 		}
 	}
 

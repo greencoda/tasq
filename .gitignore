@@ -21,6 +21,9 @@ vendor
 *.zip
 bin/
 
+# ignore docker db volume data
+.dbdata
+
 # IDE-related files
 .idea
 .vscode

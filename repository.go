@@ -2,38 +2,35 @@ package tasq
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	"github.com/greencoda/tasq/internal/repository"
-	"github.com/greencoda/tasq/internal/repository/postgres"
+	"github.com/google/uuid"
 )
 
-// NewRepository creates a repository instance for the provided sql driver, and optionally migrates the required type and table
-// the argument datasource may be an initiated *sql.DB instance or the dsn string
-// prefix speficies a prefix for both the used task status enum type and the table used (e.g.: "tasq" will result in the table name "tasq_tasks")
-func NewRepository(dataSource any, driver, prefix string, migrate bool, migrationTimeout time.Duration) (repository repository.IRepository, err error) {
-	switch driver {
-	case "postgres":
-		repository, err = postgres.NewRepository(dataSource, driver, prefix)
-		if err != nil {
-			return nil, err
-		}
-	default:
-		return nil, fmt.Errorf("unsupported database driver %s", driver)
-	}
+// Ordering is an enum type describing the polling strategy utitlized during
+// the polling process.
+type Ordering int
 
-	if !migrate {
-		return
-	}
+// The collection of orderings.
+const (
+	OrderingCreatedAtFirst Ordering = iota
+	OrderingPriorityFirst
+)
 
-	ctx, cancel := context.WithTimeout(context.Background(), migrationTimeout)
-	defer cancel()
+// IRepository describes the mandatory methods a repository must implement
+// in order for tasq to be able to use it.
+type IRepository interface {
+	Migrate(ctx context.Context) error
 
-	err = repository.Migrate(ctx)
-	if err != nil {
-		return nil, err
-	}
+	PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibilityTimeout time.Duration) ([]*Task, error)
+	PollTasks(ctx context.Context, types, queues []string, visibilityTimeout time.Duration, ordering Ordering, limit int) ([]*Task, error)
+	CleanTasks(ctx context.Context, minimumAge time.Duration) (int64, error)
 
-	return
+	RegisterStart(ctx context.Context, task *Task) (*Task, error)
+	RegisterError(ctx context.Context, task *Task, errTask error) (*Task, error)
+	RegisterFinish(ctx context.Context, task *Task, finishStatus TaskStatus) (*Task, error)
+
+	SubmitTask(ctx context.Context, task *Task) (*Task, error)
+	DeleteTask(ctx context.Context, task *Task) error
+	RequeueTask(ctx context.Context, task *Task) (*Task, error)
 }

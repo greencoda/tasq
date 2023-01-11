@@ -1,16 +1,19 @@
-.PHONY: deps mocks test test-cover
+.PHONY: deps lint mocks test test-cover
 .SILENT: test test-cover
 
 BINARY_NAME = crimson
-TESTABLE_PACKAGES = $(shell go list ./... | grep -v /mocks/)
+TESTABLE_PACKAGES = $(shell go list ./... | grep -v ./mocks)
 
 deps:
 	go mod tidy
 	go mod vendor
 
+lint: deps
+	golangci-lint run -v
+
 mocks:
-	rm -rf internal/mocks/*
-	mockery --all --dir=internal --output=internal/mocks --keeptree
+	rm -rf mocks/*
+	mockery --name=IRepository
 
 test:
 	go test ${TESTABLE_PACKAGES} -count=1 -cover 

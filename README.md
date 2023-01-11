@@ -7,7 +7,10 @@
 
 # tasq
 
-Tasq is Golang task queue using SQL database for persistence (currently supporting PostgreSQL only)
+Tasq is Golang task queue using SQL database for persistence.
+Currently supports: 
+- PostgreSQL
+- MySQL
 
 ## Install
 
@@ -19,12 +22,12 @@ go get -u github.com/greencoda/tasq
 
 To try tasq locally, you'll need a PostgreSQL DB backend. You may use the supplied docker-compose.yml file to start a local instance
 ```shell
-docker-compose -f example/docker-compose.yml up -d
+docker-compose -f _examples/<example_repo_name>/docker-compose.yml up -d
 ```
 
 Afterwards simply run the example.go file
 ```shell
-go run _example/example.go
+go run _example/<example_repo_name>/main.go
 ```
 
 [godoc-badge]: https://pkg.go.dev/badge/github.com/greencoda/tasq

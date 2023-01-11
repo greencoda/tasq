@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/greencoda/tasq"
+	tasqMySQL "github.com/greencoda/tasq/repository/mysql"
 )
 
 const (
@@ -22,7 +23,7 @@ type SampleTaskArgs struct {
 	Value float64
 }
 
-func processSampleTask(task tasq.Task) error {
+func processSampleTask(task *tasq.Task) error {
 	var args SampleTaskArgs
 
 	err := task.UnmarshalArgs(&args)
@@ -32,9 +33,7 @@ func processSampleTask(task tasq.Task) error {
 
 	// do something here with the task arguments as input
 	// for purposes of the sample, we'll just log its details here
-	taskDetails := task.GetDetails()
-
-	log.Printf("executed task '%s' with args '%+v'", taskDetails.ID, args)
+	log.Printf("executed task '%s' with args '%+v'", task.ID, args)
 
 	return nil
 }
@@ -55,7 +54,7 @@ func consumeTasks(consumer *tasq.Consumer, wg *sync.WaitGroup) {
 	}
 }
 
-func produceTasks(producer *tasq.Producer) {
+func produceTasks(ctx context.Context, producer *tasq.Producer) {
 	taskTicker := time.NewTicker(1 * time.Second)
 
 	for taskIndex := 0; true; taskIndex++ {
@@ -67,19 +66,20 @@ func produceTasks(producer *tasq.Producer) {
 			Value: rand.Float64(),
 		}
 
-		t, err := producer.Submit(taskType, taskArgs, taskQueue, 20, 5)
+		t, err := producer.Submit(ctx, taskType, taskArgs, taskQueue, 20, 5)
 		if err != nil {
 			log.Panicf("error while submitting task to tasq: %s", err)
 		} else {
-			log.Printf("successfully submitted task '%s'", t.GetDetails().ID)
+			log.Printf("successfully submitted task '%s'", t.ID)
 		}
 	}
 }
 
 func main() {
 	ctx, cancelCtx := context.WithCancel(context.Background())
+	defer cancelCtx()
 
-	db, err := sql.Open("postgres", "host=127.0.0.1 user=test password=test dbname=test port=5432 sslmode=disable")
+	db, err := sql.Open("mysql", "root:root@/test")
 	if err != nil {
 		log.Fatalf("failed to open DB connection: %v", err)
 	}
@@ -87,19 +87,29 @@ func main() {
 	// instantiate tasq repository to manage the database connection
 	// you can also have it set up the sql DB for you if you provide the dsn string
 	// instead of the *sql.DB instance
-	tasqRepository, err := tasq.NewRepository(db, "postgres", "tasq", true, 5*time.Second)
+	tasqRepository, err := tasqMySQL.NewRepository(db, "tasq")
 	if err != nil {
 		log.Fatalf("failed to create tasq repository: %s", err)
 	}
 
+	migrationCtx, migrationCancelCtx := context.WithTimeout(context.Background(), 10*time.Second)
+	defer migrationCancelCtx()
+
+	err = tasqRepository.Migrate(migrationCtx)
+	if err != nil {
+		log.Fatalf("failed to migrate tasq repository: %s", err)
+	}
+
+	log.Print("database migrated successfully")
+
 	// instantiate tasq client
-	tasqClient := tasq.NewClient(ctx, tasqRepository)
+	tasqClient := tasq.NewClient(tasqRepository)
 
 	// set up tasq cleaner
 	cleaner := tasqClient.NewCleaner().
 		WithTaskAge(time.Second)
 
-	cleanedTaskCount, err := cleaner.Clean()
+	cleanedTaskCount, err := cleaner.Clean(ctx)
 	if err != nil {
 		log.Fatalf("failed to clean old tasks from queue: %s", err)
 	}
@@ -112,7 +122,8 @@ func main() {
 		WithChannelSize(10).
 		WithPollInterval(10 * time.Second).
 		WithPollStrategy(tasq.PollStrategyByPriority).
-		WithAutoDeleteOnSuccess(false)
+		WithAutoDeleteOnSuccess(false).
+		WithLogger(log.Default())
 
 	// teach the consumer to handle tasks with the type "sampleTask" with the function "processSampleTask"
 	err = consumer.Learn(taskType, processSampleTask, false)
@@ -121,7 +132,7 @@ func main() {
 	}
 
 	// start the consumer
-	err = consumer.Start()
+	err = consumer.Start(ctx)
 	if err != nil {
 		log.Fatalf("failed to start tasq consumer: %s", err)
 	}
@@ -136,7 +147,7 @@ func main() {
 	producer := tasqClient.NewProducer()
 
 	// start the goroutine which produces the tasks and submits them to the tasq queue
-	go produceTasks(producer)
+	go produceTasks(ctx, producer)
 
 	// block the execution
 	<-time.After(30 * time.Second)
@@ -147,7 +158,4 @@ func main() {
 
 	// wait until consumer go routine exits
 	consumerWg.Wait()
-
-	// cancel the context
-	cancelCtx()
 }
