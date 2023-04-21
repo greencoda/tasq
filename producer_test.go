@@ -82,3 +82,19 @@ func (s *ProducterTestSuite) TestSubmitInvalidpriority() {
 	assert.Nil(s.T(), task)
 	assert.NotNil(s.T(), err)
 }
+
+func (s *ProducterTestSuite) TestSubmitTask() {
+	ctx := context.Background()
+
+	s.mockRepository.On("SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")).Return(s.testTask, nil)
+
+	task, err := tasq.NewTask(s.testTask.Type, s.testTask.Args, s.testTask.Queue, s.testTask.Priority, s.testTask.MaxReceives)
+	require.NotNil(s.T(), task)
+	require.Nil(s.T(), err)
+
+	submittedTask, err := s.tasqProducer.SubmitTask(ctx, task)
+
+	assert.NotNil(s.T(), submittedTask)
+	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")))
+	assert.Nil(s.T(), err)
+}

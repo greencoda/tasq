@@ -25,7 +25,12 @@ func (p *Producer) Submit(ctx context.Context, taskType string, taskArgs any, qu
 		return nil, fmt.Errorf("error creating task: %w", err)
 	}
 
-	submittedTask, err := p.client.repository.SubmitTask(ctx, newTask)
+	return p.SubmitTask(ctx, newTask)
+}
+
+// SubmitTask submits an existing task struct to the queue based on the supplied arguments.
+func (p *Producer) SubmitTask(ctx context.Context, task *Task) (*Task, error) {
+	submittedTask, err := p.client.repository.SubmitTask(ctx, task)
 	if err != nil {
 		return nil, fmt.Errorf("error submitting task: %w", err)
 	}
