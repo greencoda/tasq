@@ -443,9 +443,9 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 	const (
 		insertTaskSQLTemplate = `INSERT INTO 
 				{{.tableName}} 
-				(id, type, args, queue, priority, status, max_receives, created_at) 
+				(id, type, args, queue, priority, status, max_receives, created_at, visible_at) 
 			VALUES
-				(:id, :type, :args, :queue, :priority, :status, :maxReceives, :createdAt);`
+				(:id, :type, :args, :queue, :priority, :status, :maxReceives, :createdAt, :visibleAt);`
 		selectInsertedTaskSQLTemplate = `SELECT * 
 			FROM 
 				{{.tableName}}
@@ -471,6 +471,7 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 			"status":      mySQLTask.Status,
 			"maxReceives": mySQLTask.MaxReceives,
 			"createdAt":   mySQLTask.CreatedAt,
+			"visibleAt":   mySQLTask.VisibleAt,
 		})
 	)
 

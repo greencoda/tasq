@@ -555,9 +555,9 @@ func (s *MySQLTestSuite) TestSubmitTask() {
 	var (
 		insertMockRegexp = regexp.QuoteMeta(`INSERT INTO 
 				test_tasks
-				(id, type, args, queue, priority, status, max_receives, created_at) 
+				(id, type, args, queue, priority, status, max_receives, created_at, visible_at) 
 			VALUES
-				(?, ?, ?, ?, ?, ?, ?, ?);`)
+				(?, ?, ?, ?, ?, ?, ?, ?, ?);`)
 		selectMockRegexp = regexp.QuoteMeta(`SELECT * 
 			FROM 
 				test_tasks

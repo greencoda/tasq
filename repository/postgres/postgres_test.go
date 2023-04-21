@@ -281,7 +281,7 @@ func (s *PostgresTestSuite) TestRegisterFinish() {
 }
 
 func (s *PostgresTestSuite) TestSubmitTask() {
-	stmtMockRegexp := regexp.QuoteMeta(`INSERT INTO test_tasks  (id, type, args, queue, priority, status, max_receives, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *;`)
+	stmtMockRegexp := regexp.QuoteMeta(`INSERT INTO test_tasks  (id, type, args, queue, priority, status, max_receives, created_at, visible_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *;`)
 
 	// submitting task when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
