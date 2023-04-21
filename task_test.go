@@ -3,6 +3,7 @@ package tasq_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq"
@@ -91,4 +92,33 @@ func (s *TaskTestSuite) TestTaskUnmarshalArgs() {
 	err = task.UnmarshalArgs(&incorrectTypeArgs)
 	assert.NotNil(s.T(), err)
 	assert.Empty(s.T(), incorrectTypeArgs)
+}
+
+func (s *TaskTestSuite) TestTaskIsLastReceive() {
+	// Create singleReceiveTask successfully
+	singleReceiveTask, _ := tasq.NewTask("testTask", true, "testQueue", 0, 1)
+	singleReceiveTask.ReceiveCount = 1
+	assert.NotNil(s.T(), singleReceiveTask)
+
+	// Check if task is in its last receive before reaching the maximum amount of receives
+	assert.True(s.T(), singleReceiveTask.IsLastReceive())
+
+	// Create multiReceiveTask successfully
+	multiReceiveTask, _ := tasq.NewTask("testTask", true, "testQueue", 0, 5)
+	multiReceiveTask.ReceiveCount = 1
+	assert.NotNil(s.T(), multiReceiveTask)
+
+	// Check if task is in its last receive before reaching the maximum amount of receives
+	assert.False(s.T(), multiReceiveTask.IsLastReceive())
+}
+
+func (s *TaskTestSuite) TestTaskSetVisibility() {
+	// Create task successfully
+	task, _ := tasq.NewTask("testTask", true, "testQueue", 0, 5)
+	assert.NotNil(s.T(), task)
+
+	// Set Visibility successfully
+	visibilityTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	task.SetVisibility(visibilityTime)
+	assert.Equal(s.T(), task.VisibleAt, visibilityTime)
 }

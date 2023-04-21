@@ -105,6 +105,16 @@ func NewTask(taskType string, taskArgs any, queue string, priority int16, maxRec
 	}, nil
 }
 
+// IsLastReceive returns true if the task has reached its maximum number of receives.
+func (t *Task) IsLastReceive() bool {
+	return t.ReceiveCount >= t.MaxReceives
+}
+
+// SetVisibility sets the time at which the task will become visible again.
+func (t *Task) SetVisibility(visibleAt time.Time) {
+	t.VisibleAt = visibleAt
+}
+
 // UnmarshalArgs decodes the task arguments into the passed target interface.
 func (t *Task) UnmarshalArgs(target any) error {
 	var (
