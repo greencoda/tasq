@@ -33,9 +33,8 @@ type Logger interface {
 	Printf(format string, v ...any)
 }
 
-type handlerFunc func(task *Task) error
-
-type handlerFuncMap map[string]handlerFunc
+// HandlerFunc is the function signature for the handler functions that are used to process tasks.
+type HandlerFunc func(task *Task) error
 
 // PollStrategy is the label assigned to the ordering by which tasks are polled for consumption.
 type PollStrategy string
@@ -79,7 +78,7 @@ type Consumer struct {
 	clock   clock.Clock
 	logger  Logger
 
-	handlerFuncMap handlerFuncMap
+	handlerFuncMap map[string]HandlerFunc
 
 	activeTasks map[uuid.UUID]struct{}
 
@@ -108,7 +107,7 @@ func (c *Client) NewConsumer() *Consumer {
 		clock:   clock.New(),
 		logger:  NoopLogger(),
 
-		handlerFuncMap: make(handlerFuncMap),
+		handlerFuncMap: make(map[string]HandlerFunc),
 
 		activeTasks: make(map[uuid.UUID]struct{}),
 
@@ -207,7 +206,7 @@ func (c *Consumer) WithQueues(queues ...string) *Consumer {
 // Learn sets a handler function for the specified taskType.
 // If override is false and a handler function is already set for the specified
 // taskType, it'll return an error.
-func (c *Consumer) Learn(taskType string, f handlerFunc, override bool) error {
+func (c *Consumer) Learn(taskType string, f HandlerFunc, override bool) error {
 	if _, exists := c.handlerFuncMap[taskType]; exists && !override {
 		return fmt.Errorf("%w: %s", ErrTaskTypeAlreadyLearned, taskType)
 	}
@@ -482,7 +481,7 @@ func (c *Consumer) createJobFromTask(ctx context.Context, task *Task) (*func(), 
 	return nil, fmt.Errorf("%w: %s", ErrTaskTypeNotKnown, task.Type)
 }
 
-func (c *Consumer) newJob(ctx context.Context, consumer *Consumer, f handlerFunc, task *Task) *func() {
+func (c *Consumer) newJob(ctx context.Context, consumer *Consumer, f HandlerFunc, task *Task) *func() {
 	job := func() {
 		consumer.registerTaskStart(ctx, task)
 
