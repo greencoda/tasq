@@ -18,6 +18,8 @@ linters:
 linters-settings:
   paralleltest:
     ignore-missing: true
+  interfacebloat:
+    max: 20
 
 issues:
   exclude-use-default: false

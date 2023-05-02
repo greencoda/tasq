@@ -75,6 +75,28 @@ func produceTasks(ctx context.Context, producer *tasq.Producer) {
 	}
 }
 
+func observeTasks(ctx context.Context, inspector *tasq.Inspector) {
+	taskTicker := time.NewTicker(1 * time.Second)
+
+	for taskIndex := 0; true; taskIndex++ {
+		<-taskTicker.C
+
+		taskCount, err := inspector.Count(ctx, nil, []string{taskType}, []string{taskQueue})
+		if err != nil {
+			log.Panicf("error while counting tasks: %s", err)
+		}
+
+		log.Printf("successfully counted %d tasks total", taskCount)
+
+		tasks, err := inspector.Scan(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{taskType}, []string{taskQueue}, tasq.OrderingCreatedAtFirst, 20)
+		if err != nil {
+			log.Panicf("error while scanning tasks: %s", err)
+		}
+
+		log.Printf("successfully scanned %d new tasks", len(tasks))
+	}
+}
+
 func main() {
 	ctx, cancelCtx := context.WithCancel(context.Background())
 	defer cancelCtx()
@@ -142,6 +164,11 @@ func main() {
 	// start the goroutine which handles the tasq jobs received from the consumer
 	consumerWg.Add(1)
 	go consumeTasks(consumer, &consumerWg)
+
+	// set up tasq inspector
+	inspector := tasqClient.NewInspector()
+
+	go observeTasks(ctx, inspector)
 
 	// set up tasq producer
 	producer := tasqClient.NewProducer()

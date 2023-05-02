@@ -18,6 +18,7 @@ const (
 	taskQueue = "sampleQueue"
 )
 
+// SampleTaskArgs is a struct that represents the arguments for the sample task.
 type SampleTaskArgs struct {
 	ID    int
 	Value float64
@@ -61,6 +62,7 @@ func produceTasks(ctx context.Context, producer *tasq.Producer) {
 		<-taskTicker.C
 
 		rand.Seed(time.Now().UnixNano())
+
 		taskArgs := SampleTaskArgs{
 			ID:    taskIndex,
 			Value: rand.Float64(),
@@ -72,6 +74,28 @@ func produceTasks(ctx context.Context, producer *tasq.Producer) {
 		} else {
 			log.Printf("successfully submitted task '%s'", t.ID)
 		}
+	}
+}
+
+func observeTasks(ctx context.Context, inspector *tasq.Inspector) {
+	taskTicker := time.NewTicker(1 * time.Second)
+
+	for taskIndex := 0; true; taskIndex++ {
+		<-taskTicker.C
+
+		taskCount, err := inspector.Count(ctx, nil, []string{taskType}, []string{taskQueue})
+		if err != nil {
+			log.Panicf("error while counting tasks: %s", err)
+		}
+
+		log.Printf("successfully counted %d tasks total", taskCount)
+
+		tasks, err := inspector.Scan(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{taskType}, []string{taskQueue}, tasq.OrderingCreatedAtFirst, 20)
+		if err != nil {
+			log.Panicf("error while scanning tasks: %s", err)
+		}
+
+		log.Printf("successfully scanned %d new tasks", len(tasks))
 	}
 }
 
@@ -142,6 +166,11 @@ func main() {
 	// start the goroutine which handles the tasq jobs received from the consumer
 	consumerWg.Add(1)
 	go consumeTasks(consumer, &consumerWg)
+
+	// set up tasq inspector
+	inspector := tasqClient.NewInspector()
+
+	go observeTasks(ctx, inspector)
 
 	// set up tasq producer
 	producer := tasqClient.NewProducer()

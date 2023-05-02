@@ -163,13 +163,21 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	var (
 		successTestArgs = "success"
 		failTestArgs    = "fail"
-
-		successTestTask, _       = tasq.NewTask("testTask", successTestArgs, "testQueue", 100, 5)
-		failTestTask, _          = tasq.NewTask("testTask", failTestArgs, "testQueue", 100, 5)
-		failNoRequeueTestTask, _ = tasq.NewTask("testTask", failTestArgs, "testQueue", 100, 1)
 	)
 
-	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
+	successTestTask, err := tasq.NewTask("testTask", successTestArgs, "testQueue", 100, 5)
+	require.NotNil(s.T(), successTestTask)
+	require.Nil(s.T(), err)
+
+	failTestTask, err := tasq.NewTask("testTask", failTestArgs, "testQueue", 100, 5)
+	require.NotNil(s.T(), failTestTask)
+	require.Nil(s.T(), err)
+
+	failNoRequeueTestTask, err := tasq.NewTask("testTask", failTestArgs, "testQueue", 100, 1)
+	require.NotNil(s.T(), failNoRequeueTestTask)
+	require.Nil(s.T(), err)
+
+	err = s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		var args string
 
 		err := task.UnmarshalArgs(&args)
@@ -309,9 +317,11 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 		WithQueues("testQueue").
 		WithAutoDeleteOnSuccess(true)
 
-	successTestTask, _ := tasq.NewTask("testTask", true, "testQueue", 100, 5)
+	successTestTask, err := tasq.NewTask("testTask", true, "testQueue", 100, 5)
+	require.NotNil(s.T(), successTestTask)
+	require.Nil(s.T(), err)
 
-	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
+	err = s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
 	require.Nil(s.T(), err)
@@ -368,9 +378,11 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 		WithQueues("testQueue").
 		WithPollStrategy(tasq.PollStrategyByPriority)
 
-	successTestTask, _ := tasq.NewTask("testTask", true, "testQueue", 100, 5)
+	successTestTask, err := tasq.NewTask("testTask", true, "testQueue", 100, 5)
+	require.NotNil(s.T(), successTestTask)
+	require.Nil(s.T(), err)
 
-	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
+	err = s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
 	require.Nil(s.T(), err)
@@ -448,9 +460,11 @@ func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 	s.tasqConsumer.
 		WithQueues("testQueue")
 
-	anotherTestTask, _ := tasq.NewTask("anotherTestTask", true, "testQueue", 100, 5)
+	anotherTestTask, err := tasq.NewTask("anotherTestTask", true, "testQueue", 100, 5)
+	require.NotNil(s.T(), anotherTestTask)
+	require.Nil(s.T(), err)
 
-	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
+	err = s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
 	require.Nil(s.T(), err)

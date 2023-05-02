@@ -96,16 +96,16 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 		sqlTemplate = `UPDATE
 				{{.tableName}}
 			SET
-				"visible_at" = :visible_at
+				"visible_at" = :visibleAt
 			WHERE
-				"id" = ANY(:pinged_ids)
+				"id" = ANY(:pingedTaskIDs)
 			RETURNING id;`
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
 	err := stmt.SelectContext(ctx, &pingedTasks, map[string]any{
-		"visible_at": pingTime.Add(visibilityTimeout),
-		"pinged_ids": pq.Array(taskIDs),
+		"visibleAt":     pingTime.Add(visibilityTimeout),
+		"pingedTaskIDs": pq.Array(taskIDs),
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return []*tasq.Task{}, fmt.Errorf("failed to update tasks: %w", err)
@@ -127,33 +127,33 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 		sqlTemplate = `UPDATE {{.tableName}} SET
 				"status" = :status,
 				"receive_count" = "receive_count" + 1,
-				"visible_at" = :visible_at
+				"visible_at" = :visibleAt
 			WHERE
 				"id" IN (
 					SELECT
 						"id" FROM {{.tableName}}
 					WHERE
-						"type" = ANY(:poll_types) AND
-						"queue" = ANY(:poll_queues) AND 
-						"status" = ANY(:poll_statuses) AND 
-						"visible_at" <= :poll_time
+						"type" = ANY(:pollTypes) AND
+						"queue" = ANY(:pollQueues) AND 
+						"status" = ANY(:pollStatuses) AND 
+						"visible_at" <= :pollTime
 					ORDER BY
-						:poll_ordering
-					LIMIT :poll_limit
+						:pollOrdering
+					LIMIT :pollLimit
 				FOR UPDATE )
 			RETURNING *;`
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
 	err := stmt.SelectContext(ctx, &polledTasks, map[string]any{
-		"status":        tasq.StatusEnqueued,
-		"visible_at":    pollTime.Add(visibilityTimeout),
-		"poll_types":    pq.Array(types),
-		"poll_queues":   pq.Array(queues),
-		"poll_statuses": pq.Array(tasq.GetTaskStatuses(tasq.OpenTasks)),
-		"poll_time":     pollTime,
-		"poll_ordering": pq.Array(getOrderingDirectives(ordering)),
-		"poll_limit":    pollLimit,
+		"status":       tasq.StatusEnqueued,
+		"visibleAt":    pollTime.Add(visibilityTimeout),
+		"pollTypes":    pq.Array(types),
+		"pollQueues":   pq.Array(queues),
+		"pollStatuses": pq.Array(tasq.GetTaskStatuses(tasq.OpenTasks)),
+		"pollTime":     pollTime,
+		"pollOrdering": pq.Array(getOrderingDirectives(ordering)),
+		"pollLimit":    pollLimit,
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return []*tasq.Task{}, fmt.Errorf("failed to update tasks: %w", err)
@@ -347,6 +347,93 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 	}
 
 	return updatedTask.toTask(), err
+}
+
+// Count returns the number of tasks in the queue based on the supplied filters.
+func (d *Repository) Count(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string) (int, error) {
+	var (
+		count                   int
+		sqlTemplate, parameters = d.buildCountSQLTemplate(taskStatuses, taskTypes, queues)
+		stmt                    = d.prepareWithTableName(sqlTemplate)
+	)
+
+	err := stmt.GetContext(ctx, &count, parameters)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("failed to count tasks: %w", err)
+	}
+
+	return count, nil
+}
+
+// Scan returns a list of tasks in the queue based on the supplied filters.
+func (d *Repository) Scan(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string, ordering tasq.Ordering, scanLimit int) ([]*tasq.Task, error) {
+	var (
+		scannedTasks            []*postgresTask
+		sqlTemplate, parameters = d.buildScanSQLTemplate(taskStatuses, taskTypes, queues, ordering, scanLimit)
+		stmt                    = d.prepareWithTableName(sqlTemplate)
+	)
+
+	err := stmt.SelectContext(ctx, &scannedTasks, parameters)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return []*tasq.Task{}, fmt.Errorf("failed to scan tasks: %w", err)
+	}
+
+	return postgresTasksToTasks(scannedTasks), nil
+}
+
+func (d *Repository) buildCountSQLTemplate(taskStatuses []tasq.TaskStatus, taskTypes, queues []string) (string, map[string]any) {
+	var (
+		conditions, parameters = d.buildFilterConditions(taskStatuses, taskTypes, queues)
+		sqlTemplate            = `SELECT COUNT(*) FROM {{.tableName}}`
+	)
+
+	if len(conditions) > 0 {
+		sqlTemplate += ` WHERE ` + strings.Join(conditions, " AND ")
+	}
+
+	return sqlTemplate, parameters
+}
+
+func (d *Repository) buildScanSQLTemplate(taskStatuses []tasq.TaskStatus, taskTypes, queues []string, ordering tasq.Ordering, scanLimit int) (string, map[string]any) {
+	var (
+		conditions, parameters = d.buildFilterConditions(taskStatuses, taskTypes, queues)
+		sqlTemplate            = `SELECT * FROM {{.tableName}}`
+	)
+
+	if len(conditions) > 0 {
+		sqlTemplate += ` WHERE ` + strings.Join(conditions, " AND ")
+	}
+
+	sqlTemplate += ` ORDER BY :scanOrdering LIMIT :limit;`
+
+	parameters["scanOrdering"] = pq.Array(getOrderingDirectives(ordering))
+	parameters["limit"] = scanLimit
+
+	return sqlTemplate, parameters
+}
+
+func (d *Repository) buildFilterConditions(taskStatuses []tasq.TaskStatus, taskTypes, queues []string) ([]string, map[string]any) {
+	var (
+		conditions []string
+		parameters = make(map[string]any)
+	)
+
+	if len(taskStatuses) > 0 {
+		conditions = append(conditions, `"status" = ANY(:statuses)`)
+		parameters["statuses"] = pq.Array(taskStatuses)
+	}
+
+	if len(taskTypes) > 0 {
+		conditions = append(conditions, `"type" = ANY(:types)`)
+		parameters["types"] = pq.Array(taskTypes)
+	}
+
+	if len(queues) > 0 {
+		conditions = append(conditions, `"queue" = ANY(:queues)`)
+		parameters["queues"] = pq.Array(queues)
+	}
+
+	return conditions, parameters
 }
 
 func (d *Repository) migrateStatus(ctx context.Context) error {

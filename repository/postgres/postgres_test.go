@@ -332,6 +332,42 @@ func (s *PostgresTestSuite) TestRequeueTask() {
 	assert.Nil(s.T(), err)
 }
 
+func (s *PostgresTestSuite) TestCount() {
+	stmtMockRegexp := regexp.QuoteMeta(`SELECT COUNT(*) FROM test_tasks WHERE "status" = ANY($1) AND "type" = ANY($2) AND "queue" = ANY($3)`)
+
+	// counting tasks when DB returns error
+	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
+
+	count, err := s.mockedRepository.Count(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"})
+	assert.Equal(s.T(), count, 0)
+	assert.NotNil(s.T(), err)
+
+	// counting tasks successful
+	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
+
+	count, err = s.mockedRepository.Count(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"})
+	assert.Equal(s.T(), count, 10)
+	assert.Nil(s.T(), err)
+}
+
+func (s *PostgresTestSuite) TestScan() {
+	stmtMockRegexp := regexp.QuoteMeta(`SELECT * FROM test_tasks WHERE "status" = ANY($1) AND "type" = ANY($2) AND "queue" = ANY($3) ORDER BY $4 LIMIT $5;`)
+
+	// scanning tasks when DB returns error
+	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
+
+	tasks, err := s.mockedRepository.Scan(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"}, 0, 10)
+	assert.Empty(s.T(), tasks)
+	assert.NotNil(s.T(), err)
+
+	// scanning tasks successful
+	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
+
+	tasks, err = s.mockedRepository.Scan(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"}, 0, 10)
+	assert.NotEmpty(s.T(), tasks)
+	assert.Nil(s.T(), err)
+}
+
 func (s *PostgresTestSuite) TestPrepareWithTableName() {
 	stmtMockRegexp := regexp.QuoteMeta(`SELECT * FROM test_tasks`)
 

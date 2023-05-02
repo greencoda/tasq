@@ -46,6 +46,7 @@ const (
 )
 
 const (
+	defaultQueue               = ""
 	defaultChannelSize         = 10
 	defaultPollInterval        = 5 * time.Second
 	defaultPollStrategy        = PollStrategyByCreatedAt
@@ -112,7 +113,7 @@ func (c *Client) NewConsumer() *Consumer {
 		activeTasks: make(map[uuid.UUID]struct{}),
 
 		visibilityTimeout: defaultVisibilityTimeout,
-		queues:            []string{""},
+		queues:            []string{defaultQueue},
 
 		stop: make(chan struct{}, 1),
 	}

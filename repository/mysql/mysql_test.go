@@ -642,6 +642,58 @@ func (s *MySQLTestSuite) TestDeleteTask() {
 	assert.Nil(s.T(), err)
 }
 
+func (s *MySQLTestSuite) TestCount() {
+	selectMockRegexp := regexp.QuoteMeta(`SELECT
+			COUNT(*)
+		FROM
+			test_tasks
+		WHERE 
+			status IN (?, ?, ?) AND 
+			type IN (?) AND
+			queue IN (?);`)
+
+	// counting when DB returns error
+	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnError(errSQL)
+
+	count, err := s.mockedRepository.Count(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue})
+	assert.Equal(s.T(), 0, count)
+	assert.NotNil(s.T(), err)
+
+	// counting successful
+	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
+
+	count, err = s.mockedRepository.Count(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue})
+	assert.Equal(s.T(), 10, count)
+	assert.Nil(s.T(), err)
+}
+
+func (s *MySQLTestSuite) TestScan() {
+	selectMockRegexp := regexp.QuoteMeta(`SELECT
+			*
+		FROM
+			test_tasks
+		WHERE
+			status IN (?, ?, ?) AND
+			type IN (?) AND
+			queue IN (?) 
+		ORDER BY ? 
+		LIMIT ?;`)
+
+	// scanning when DB returns error
+	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnError(errSQL)
+
+	tasks, err := s.mockedRepository.Scan(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue}, tasq.OrderingCreatedAtFirst, 10)
+	assert.Empty(s.T(), tasks)
+	assert.NotNil(s.T(), err)
+
+	// scanning successful
+	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
+
+	tasks, err = s.mockedRepository.Scan(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue}, tasq.OrderingCreatedAtFirst, 10)
+	assert.NotEmpty(s.T(), tasks)
+	assert.Nil(s.T(), err)
+}
+
 func (s *MySQLTestSuite) TestRequeueTask() {
 	var (
 		updateMockRegexp = regexp.QuoteMeta(`UPDATE 

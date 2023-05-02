@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 )
 
 const driverName = "mysql"
@@ -573,6 +574,95 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 	}
 
 	return mySQLTask.toTask(), err
+}
+
+// Count returns the number of tasks in the queue based on the supplied filters.
+func (d *Repository) Count(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string) (int, error) {
+	var (
+		count                                     int
+		selectTaskCountQuery, selectTaskCountArgs = d.getQueryWithTableName(
+			d.buildCountSQLTemplate(taskStatuses, taskTypes, queues),
+		)
+	)
+
+	err := d.db.GetContext(ctx, &count, selectTaskCountQuery, selectTaskCountArgs...)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+	}
+
+	return count, nil
+}
+
+// Scan returns a list of tasks in the queue based on the supplied filters.
+func (d *Repository) Scan(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string, ordering tasq.Ordering, scanLimit int) ([]*tasq.Task, error) {
+	var (
+		scannedTasks                                    []*mySQLTask
+		selectScannedTasksQuery, selectScannedTasksArgs = d.getQueryWithTableName(
+			d.buildScanSQLTemplate(taskStatuses, taskTypes, queues, ordering, scanLimit),
+		)
+	)
+
+	err := d.db.SelectContext(ctx, &scannedTasks, selectScannedTasksQuery, selectScannedTasksArgs...)
+	if err != nil {
+		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+	}
+
+	return mySQLTasksToTasks(scannedTasks), nil
+}
+
+func (d *Repository) buildCountSQLTemplate(taskStatuses []tasq.TaskStatus, taskTypes, queues []string) (string, map[string]any) {
+	var (
+		conditions, parameters = d.buildFilterConditions(taskStatuses, taskTypes, queues)
+		sqlTemplate            = `SELECT COUNT(*) FROM {{.tableName}}`
+	)
+
+	if len(conditions) > 0 {
+		sqlTemplate += ` WHERE ` + strings.Join(conditions, " AND ")
+	}
+
+	return sqlTemplate + `;`, parameters
+}
+
+func (d *Repository) buildScanSQLTemplate(taskStatuses []tasq.TaskStatus, taskTypes, queues []string, ordering tasq.Ordering, scanLimit int) (string, map[string]any) {
+	var (
+		conditions, parameters = d.buildFilterConditions(taskStatuses, taskTypes, queues)
+		sqlTemplate            = `SELECT * FROM {{.tableName}}`
+	)
+
+	if len(conditions) > 0 {
+		sqlTemplate += ` WHERE ` + strings.Join(conditions, " AND ")
+	}
+
+	sqlTemplate += ` ORDER BY :scanOrdering LIMIT :limit;`
+
+	parameters["scanOrdering"] = pq.Array(getOrderingDirectives(ordering))
+	parameters["limit"] = scanLimit
+
+	return sqlTemplate + `;`, parameters
+}
+
+func (d *Repository) buildFilterConditions(taskStatuses []tasq.TaskStatus, taskTypes, queues []string) ([]string, map[string]any) {
+	var (
+		conditions []string
+		parameters = make(map[string]any)
+	)
+
+	if len(taskStatuses) > 0 {
+		conditions = append(conditions, `status IN (:statuses)`)
+		parameters["statuses"] = tasq.GetTaskStatuses(tasq.OpenTasks)
+	}
+
+	if len(taskTypes) > 0 {
+		conditions = append(conditions, `type IN (:types)`)
+		parameters["types"] = taskTypes
+	}
+
+	if len(queues) > 0 {
+		conditions = append(conditions, `queue IN (:queues)`)
+		parameters["queues"] = queues
+	}
+
+	return conditions, parameters
 }
 
 func (d *Repository) getQueryWithTableName(sqlTemplate string, args ...any) (string, []any) {
