@@ -42,8 +42,8 @@ func (_m *IRepository) CleanTasks(ctx context.Context, minimumAge time.Duration)
 	return r0, r1
 }
 
-// Count provides a mock function with given fields: ctx, taskStatuses, taskTypes, queues
-func (_m *IRepository) Count(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes []string, queues []string) (int, error) {
+// CountTasks provides a mock function with given fields: ctx, taskStatuses, taskTypes, queues
+func (_m *IRepository) CountTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes []string, queues []string) (int, error) {
 	ret := _m.Called(ctx, taskStatuses, taskTypes, queues)
 
 	var r0 int
@@ -66,13 +66,13 @@ func (_m *IRepository) Count(ctx context.Context, taskStatuses []tasq.TaskStatus
 	return r0, r1
 }
 
-// DeleteTask provides a mock function with given fields: ctx, task
-func (_m *IRepository) DeleteTask(ctx context.Context, task *tasq.Task) error {
-	ret := _m.Called(ctx, task)
+// DeleteTask provides a mock function with given fields: ctx, task, visibleOnly
+func (_m *IRepository) DeleteTask(ctx context.Context, task *tasq.Task, visibleOnly bool) error {
+	ret := _m.Called(ctx, task, visibleOnly)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *tasq.Task) error); ok {
-		r0 = rf(ctx, task)
+	if rf, ok := ret.Get(0).(func(context.Context, *tasq.Task, bool) error); ok {
+		r0 = rf(ctx, task, visibleOnly)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -250,8 +250,8 @@ func (_m *IRepository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.
 	return r0, r1
 }
 
-// Scan provides a mock function with given fields: ctx, taskStatuses, taskTypes, queues, ordering, limit
-func (_m *IRepository) Scan(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes []string, queues []string, ordering tasq.Ordering, limit int) ([]*tasq.Task, error) {
+// ScanTasks provides a mock function with given fields: ctx, taskStatuses, taskTypes, queues, ordering, limit
+func (_m *IRepository) ScanTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes []string, queues []string, ordering tasq.Ordering, limit int) ([]*tasq.Task, error) {
 	ret := _m.Called(ctx, taskStatuses, taskTypes, queues, ordering, limit)
 
 	var r0 []*tasq.Task

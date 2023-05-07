@@ -298,7 +298,7 @@ func (c *Consumer) registerTaskError(ctx context.Context, task *Task, taskError 
 
 func (c *Consumer) registerTaskSuccess(ctx context.Context, task *Task) {
 	if c.autoDeleteOnSuccess {
-		err := c.client.repository.DeleteTask(ctx, task)
+		err := c.client.repository.DeleteTask(ctx, task, false)
 		if err != nil {
 			panic(err)
 		}

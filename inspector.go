@@ -18,9 +18,9 @@ func (c *Client) NewInspector() *Inspector {
 	}
 }
 
-// Count returns a the total number of tasks from the queue based on the supplied filter arguments.
+// Count returns a the total number of tasks based on the supplied filter arguments.
 func (o *Inspector) Count(ctx context.Context, taskStatuses []TaskStatus, taskTypes, queues []string) (int, error) {
-	count, err := o.client.repository.Count(ctx, taskStatuses, taskTypes, queues)
+	count, err := o.client.repository.CountTasks(ctx, taskStatuses, taskTypes, queues)
 	if err != nil {
 		return 0, fmt.Errorf("error counting tasks: %w", err)
 	}
@@ -28,12 +28,23 @@ func (o *Inspector) Count(ctx context.Context, taskStatuses []TaskStatus, taskTy
 	return count, nil
 }
 
-// Scan returns a list of tasks from the queue based on the supplied filter arguments.
+// Scan returns a list of tasks based on the supplied filter arguments.
 func (o *Inspector) Scan(ctx context.Context, taskStatuses []TaskStatus, taskTypes, queues []string, ordering Ordering, limit int) ([]*Task, error) {
-	tasks, err := o.client.repository.Scan(ctx, taskStatuses, taskTypes, queues, ordering, limit)
+	tasks, err := o.client.repository.ScanTasks(ctx, taskStatuses, taskTypes, queues, ordering, limit)
 	if err != nil {
 		return nil, fmt.Errorf("error scanning tasks: %w", err)
 	}
 
 	return tasks, nil
+}
+
+// Remove will remove the supplied tasks.
+func (o *Inspector) Remove(ctx context.Context, tasks ...*Task) error {
+	for _, task := range tasks {
+		if err := o.client.repository.DeleteTask(ctx, task, true); err != nil {
+			return fmt.Errorf("error removing task: %w", err)
+		}
+	}
+
+	return nil
 }

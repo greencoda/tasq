@@ -623,22 +623,37 @@ func (s *MySQLTestSuite) TestSubmitTask() {
 }
 
 func (s *MySQLTestSuite) TestDeleteTask() {
-	deleteMockRegexp := regexp.QuoteMeta(`DELETE 
+	var (
+		deleteMockRegexp = regexp.QuoteMeta(`DELETE 
 		FROM 
 			test_tasks
 		WHERE
 			id = ?;`)
+		deleteInvisibleMockRegexp = regexp.QuoteMeta(`DELETE 
+		FROM 
+			test_tasks 
+		WHERE 
+			id = ?
+		AND
+			visible_at <= ?;`)
+	)
 
-	// deleting when DB returns error
+	// deleting task when DB returns error
 	s.sqlMock.ExpectExec(deleteMockRegexp).WillReturnError(errSQL)
 
-	err := s.mockedRepository.DeleteTask(ctx, testTask)
+	err := s.mockedRepository.DeleteTask(ctx, testTask, false)
 	assert.NotNil(s.T(), err)
 
-	// deleting successful
+	// deleting task successful
 	s.sqlMock.ExpectExec(deleteMockRegexp).WillReturnResult(sqlmock.NewResult(1, 1))
 
-	err = s.mockedRepository.DeleteTask(ctx, testTask)
+	err = s.mockedRepository.DeleteTask(ctx, testTask, false)
+	assert.Nil(s.T(), err)
+
+	// deleting invisible task successful
+	s.sqlMock.ExpectExec(deleteInvisibleMockRegexp).WillReturnResult(sqlmock.NewResult(1, 1))
+
+	err = s.mockedRepository.DeleteTask(ctx, testTask, true)
 	assert.Nil(s.T(), err)
 }
 
@@ -655,14 +670,14 @@ func (s *MySQLTestSuite) TestCount() {
 	// counting when DB returns error
 	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnError(errSQL)
 
-	count, err := s.mockedRepository.Count(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue})
+	count, err := s.mockedRepository.CountTasks(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue})
 	assert.Equal(s.T(), 0, count)
 	assert.NotNil(s.T(), err)
 
 	// counting successful
 	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
 
-	count, err = s.mockedRepository.Count(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue})
+	count, err = s.mockedRepository.CountTasks(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue})
 	assert.Equal(s.T(), 10, count)
 	assert.Nil(s.T(), err)
 }
@@ -682,14 +697,14 @@ func (s *MySQLTestSuite) TestScan() {
 	// scanning when DB returns error
 	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnError(errSQL)
 
-	tasks, err := s.mockedRepository.Scan(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue}, tasq.OrderingCreatedAtFirst, 10)
+	tasks, err := s.mockedRepository.ScanTasks(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue}, tasq.OrderingCreatedAtFirst, 10)
 	assert.Empty(s.T(), tasks)
 	assert.NotNil(s.T(), err)
 
 	// scanning successful
 	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 
-	tasks, err = s.mockedRepository.Scan(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue}, tasq.OrderingCreatedAtFirst, 10)
+	tasks, err = s.mockedRepository.ScanTasks(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue}, tasq.OrderingCreatedAtFirst, 10)
 	assert.NotEmpty(s.T(), tasks)
 	assert.Nil(s.T(), err)
 }

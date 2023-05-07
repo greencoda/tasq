@@ -31,10 +31,9 @@ type IRepository interface {
 	RegisterFinish(ctx context.Context, task *Task, finishStatus TaskStatus) (*Task, error)
 
 	SubmitTask(ctx context.Context, task *Task) (*Task, error)
-	DeleteTask(ctx context.Context, task *Task) error
+	DeleteTask(ctx context.Context, task *Task, visibleOnly bool) error
 	RequeueTask(ctx context.Context, task *Task) (*Task, error)
 
-	Scan(ctx context.Context, taskStatuses []TaskStatus, taskTypes, queues []string, ordering Ordering, limit int) ([]*Task, error)
-	Count(ctx context.Context, taskStatuses []TaskStatus, taskTypes, queues []string) (int, error)
-	// Remove(ctx context.Context, taskIDs []uuid.UUID) ([]uuid.UUID, error) // TODO: Implement this method.
+	ScanTasks(ctx context.Context, taskStatuses []TaskStatus, taskTypes, queues []string, ordering Ordering, limit int) ([]*Task, error)
+	CountTasks(ctx context.Context, taskStatuses []TaskStatus, taskTypes, queues []string) (int, error)
 }

@@ -344,14 +344,14 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 
 	// First try - deleting task fails
 	s.mockRepository.On("RegisterStart", ctx, successTestTask).Once().Return(successTestTask, nil)
-	s.mockRepository.On("DeleteTask", ctx, successTestTask).Once().Return(errRepository)
+	s.mockRepository.On("DeleteTask", ctx, successTestTask, false).Once().Return(errRepository)
 	assert.Panics(s.T(), func() {
 		(*successJob)()
 	})
 
 	// Second try - deleting task succeeds
 	s.mockRepository.On("RegisterStart", ctx, successTestTask).Once().Return(successTestTask, nil)
-	s.mockRepository.On("DeleteTask", ctx, successTestTask).Once().Return(nil)
+	s.mockRepository.On("DeleteTask", ctx, successTestTask, false).Once().Return(nil)
 	assert.NotPanics(s.T(), func() {
 		(*successJob)()
 	})

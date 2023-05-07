@@ -500,19 +500,25 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 }
 
 // DeleteTask removes the supplied task from the queue.
-func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task) error {
-	const deleteTaskSQLTemplate = `DELETE 
-		FROM 
-			{{.tableName}}
-		WHERE
-			id = :taskID;`
-
+func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, visibleOnly bool) error {
 	var (
-		mySQLTask                       = newFromTask(task)
-		deleteTaskQuery, deleteTaskArgs = d.getQueryWithTableName(deleteTaskSQLTemplate, map[string]any{
+		mySQLTask  = newFromTask(task)
+		conditions = []string{
+			`id = :taskID`,
+		}
+		parameters = map[string]any{
 			"taskID": mySQLTask.ID,
-		})
+		}
 	)
+
+	if visibleOnly {
+		conditions = append(conditions, `visible_at <= :visibleAt`)
+		parameters["visibleAt"] = time.Now()
+	}
+
+	deleteTaskSQLTemplate := `DELETE FROM {{.tableName}} WHERE ` + strings.Join(conditions, ` AND `) + `;`
+
+	deleteTaskQuery, deleteTaskArgs := d.getQueryWithTableName(deleteTaskSQLTemplate, parameters)
 
 	_, err := d.db.ExecContext(ctx, deleteTaskQuery, deleteTaskArgs...)
 	if err != nil {
@@ -576,8 +582,8 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 	return mySQLTask.toTask(), err
 }
 
-// Count returns the number of tasks in the queue based on the supplied filters.
-func (d *Repository) Count(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string) (int, error) {
+// CountTasks returns the number of tasks in the queue based on the supplied filters.
+func (d *Repository) CountTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string) (int, error) {
 	var (
 		count                                     int
 		selectTaskCountQuery, selectTaskCountArgs = d.getQueryWithTableName(
@@ -593,8 +599,8 @@ func (d *Repository) Count(ctx context.Context, taskStatuses []tasq.TaskStatus, 
 	return count, nil
 }
 
-// Scan returns a list of tasks in the queue based on the supplied filters.
-func (d *Repository) Scan(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string, ordering tasq.Ordering, scanLimit int) ([]*tasq.Task, error) {
+// ScanTasks returns a list of tasks in the queue based on the supplied filters.
+func (d *Repository) ScanTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string, ordering tasq.Ordering, scanLimit int) ([]*tasq.Task, error) {
 	var (
 		scannedTasks                                    []*mySQLTask
 		selectScannedTasksQuery, selectScannedTasksArgs = d.getQueryWithTableName(

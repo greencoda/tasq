@@ -13,7 +13,7 @@ lint: deps
 
 mocks:
 	rm -rf mocks/*
-	mockery --name=IRepository
+	mockery
 
 test:
 	go test ${TESTABLE_PACKAGES} -count=1 -cover 

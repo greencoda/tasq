@@ -299,18 +299,37 @@ func (s *PostgresTestSuite) TestSubmitTask() {
 }
 
 func (s *PostgresTestSuite) TestDeleteTask() {
-	stmtMockRegexp := regexp.QuoteMeta(`DELETE FROM test_tasks WHERE "id" = $1;`)
+	var (
+		stmtMockRegexp = regexp.QuoteMeta(`DELETE 
+		FROM 
+			test_tasks 
+		WHERE 
+			"id" = $1;`)
+		stmtInvisibleMockRegexp = regexp.QuoteMeta(`DELETE 
+		FROM 
+			test_tasks 
+		WHERE 
+			"id" = $1
+		AND
+			"visible_at" <= $2;`)
+	)
 
 	// deleting task when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectExec().WillReturnError(errSQL)
 
-	err := s.mockedRepository.DeleteTask(ctx, testTask)
+	err := s.mockedRepository.DeleteTask(ctx, testTask, false)
 	assert.NotNil(s.T(), err)
 
 	// deleting task successful
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectExec().WillReturnResult(sqlmock.NewResult(1, 1))
 
-	err = s.mockedRepository.DeleteTask(ctx, testTask)
+	err = s.mockedRepository.DeleteTask(ctx, testTask, false)
+	assert.Nil(s.T(), err)
+
+	// deleting invisible task successful
+	s.sqlMock.ExpectPrepare(stmtInvisibleMockRegexp).ExpectExec().WillReturnResult(sqlmock.NewResult(1, 1))
+
+	err = s.mockedRepository.DeleteTask(ctx, testTask, true)
 	assert.Nil(s.T(), err)
 }
 
@@ -338,14 +357,14 @@ func (s *PostgresTestSuite) TestCount() {
 	// counting tasks when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
 
-	count, err := s.mockedRepository.Count(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"})
+	count, err := s.mockedRepository.CountTasks(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"})
 	assert.Equal(s.T(), count, 0)
 	assert.NotNil(s.T(), err)
 
 	// counting tasks successful
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
 
-	count, err = s.mockedRepository.Count(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"})
+	count, err = s.mockedRepository.CountTasks(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"})
 	assert.Equal(s.T(), count, 10)
 	assert.Nil(s.T(), err)
 }
@@ -356,14 +375,14 @@ func (s *PostgresTestSuite) TestScan() {
 	// scanning tasks when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
 
-	tasks, err := s.mockedRepository.Scan(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"}, 0, 10)
+	tasks, err := s.mockedRepository.ScanTasks(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"}, 0, 10)
 	assert.Empty(s.T(), tasks)
 	assert.NotNil(s.T(), err)
 
 	// scanning tasks successful
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 
-	tasks, err = s.mockedRepository.Scan(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"}, 0, 10)
+	tasks, err = s.mockedRepository.ScanTasks(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"}, 0, 10)
 	assert.NotEmpty(s.T(), tasks)
 	assert.Nil(s.T(), err)
 }
