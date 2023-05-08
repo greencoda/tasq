@@ -38,8 +38,8 @@ func (o *Inspector) Scan(ctx context.Context, taskStatuses []TaskStatus, taskTyp
 	return tasks, nil
 }
 
-// Remove will remove the supplied tasks.
-func (o *Inspector) Remove(ctx context.Context, tasks ...*Task) error {
+// Delete will remove the supplied tasks.
+func (o *Inspector) Delete(ctx context.Context, tasks ...*Task) error {
 	for _, task := range tasks {
 		if err := o.client.repository.DeleteTask(ctx, task, true); err != nil {
 			return fmt.Errorf("error removing task: %w", err)

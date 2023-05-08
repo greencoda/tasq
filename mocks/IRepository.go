@@ -66,13 +66,13 @@ func (_m *IRepository) CountTasks(ctx context.Context, taskStatuses []tasq.TaskS
 	return r0, r1
 }
 
-// DeleteTask provides a mock function with given fields: ctx, task, visibleOnly
-func (_m *IRepository) DeleteTask(ctx context.Context, task *tasq.Task, visibleOnly bool) error {
-	ret := _m.Called(ctx, task, visibleOnly)
+// DeleteTask provides a mock function with given fields: ctx, task, pollableOnly
+func (_m *IRepository) DeleteTask(ctx context.Context, task *tasq.Task, pollableOnly bool) error {
+	ret := _m.Called(ctx, task, pollableOnly)
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, *tasq.Task, bool) error); ok {
-		r0 = rf(ctx, task, visibleOnly)
+		r0 = rf(ctx, task, pollableOnly)
 	} else {
 		r0 = ret.Error(0)
 	}

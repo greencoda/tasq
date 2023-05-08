@@ -500,7 +500,7 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 }
 
 // DeleteTask removes the supplied task from the queue.
-func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, visibleOnly bool) error {
+func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, pollableOnly bool) error {
 	var (
 		mySQLTask  = newFromTask(task)
 		conditions = []string{
@@ -511,8 +511,16 @@ func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, visibleOnl
 		}
 	)
 
-	if visibleOnly {
-		conditions = append(conditions, `visible_at <= :visibleAt`)
+	if pollableOnly {
+		conditions = append(conditions, `(
+			(
+				status IN (:statuses) AND 
+				visible_at <= :visibleAt
+			) OR (
+				visible_at > :visibleAt
+			)
+		)`)
+		parameters["statuses"] = tasq.GetTaskStatuses(tasq.OpenTasks)
 		parameters["visibleAt"] = time.Now()
 	}
 
@@ -655,7 +663,7 @@ func (d *Repository) buildFilterConditions(taskStatuses []tasq.TaskStatus, taskT
 
 	if len(taskStatuses) > 0 {
 		conditions = append(conditions, `status IN (:statuses)`)
-		parameters["statuses"] = tasq.GetTaskStatuses(tasq.OpenTasks)
+		parameters["statuses"] = taskStatuses
 	}
 
 	if len(taskTypes) > 0 {

@@ -309,9 +309,16 @@ func (s *PostgresTestSuite) TestDeleteTask() {
 		FROM 
 			test_tasks 
 		WHERE 
-			"id" = $1
-		AND
-			"visible_at" <= $2;`)
+			"id" = $1 AND
+			(
+				(
+					"status" = ANY($2) AND 
+					"visible_at" <= $3
+				) OR 
+				( 
+					"visible_at" > $4 
+				) 
+			);`)
 	)
 
 	// deleting task when DB returns error

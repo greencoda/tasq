@@ -86,13 +86,13 @@ func (s *InspectorTestSuite) TestRemove() {
 
 	s.mockRepository.On("DeleteTask", ctx, testTask, true).Once().Return(errRepository)
 
-	err = s.tasqInspector.Remove(ctx, testTask)
+	err = s.tasqInspector.Delete(ctx, testTask)
 	assert.NotNil(s.T(), err)
 	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "DeleteTask", ctx, testTask, true))
 
 	s.mockRepository.On("DeleteTask", ctx, testTask, true).Once().Return(nil)
 
-	err = s.tasqInspector.Remove(ctx, testTask)
+	err = s.tasqInspector.Delete(ctx, testTask)
 	assert.Nil(s.T(), err)
 	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "DeleteTask", ctx, testTask, true))
 }

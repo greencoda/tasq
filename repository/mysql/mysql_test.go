@@ -625,17 +625,24 @@ func (s *MySQLTestSuite) TestSubmitTask() {
 func (s *MySQLTestSuite) TestDeleteTask() {
 	var (
 		deleteMockRegexp = regexp.QuoteMeta(`DELETE 
-		FROM 
-			test_tasks
-		WHERE
-			id = ?;`)
+			FROM 
+				test_tasks
+			WHERE
+				id = ?;`)
 		deleteInvisibleMockRegexp = regexp.QuoteMeta(`DELETE 
-		FROM 
-			test_tasks 
-		WHERE 
-			id = ?
-		AND
-			visible_at <= ?;`)
+			FROM 
+				test_tasks 
+			WHERE 
+				id = ? AND 
+				(
+					(
+						status IN (?, ?, ?) AND 
+						visible_at <= ? 
+					) OR 
+					( 
+						visible_at > ? 
+					) 
+				);`)
 	)
 
 	// deleting task when DB returns error
@@ -663,7 +670,7 @@ func (s *MySQLTestSuite) TestCount() {
 		FROM
 			test_tasks
 		WHERE 
-			status IN (?, ?, ?) AND 
+			status IN (?) AND 
 			type IN (?) AND
 			queue IN (?);`)
 
@@ -688,7 +695,7 @@ func (s *MySQLTestSuite) TestScan() {
 		FROM
 			test_tasks
 		WHERE
-			status IN (?, ?, ?) AND
+			status IN (?) AND
 			type IN (?) AND
 			queue IN (?) 
 		ORDER BY ? 

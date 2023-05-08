@@ -306,7 +306,7 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 }
 
 // DeleteTask removes the supplied task from the queue.
-func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, visibleOnly bool) error {
+func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, pollableOnly bool) error {
 	var (
 		conditions = []string{
 			`"id" = :taskID`,
@@ -316,8 +316,16 @@ func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, visibleOnl
 		}
 	)
 
-	if visibleOnly {
-		conditions = append(conditions, `"visible_at" <= :visibleAt`)
+	if pollableOnly {
+		conditions = append(conditions, `(
+			(
+				"status" = ANY(:statuses) AND
+				"visible_at" <= :visibleAt
+			) OR (
+				"visible_at" > :visibleAt
+			)
+		)`)
+		parameters["statuses"] = pq.Array(tasq.GetTaskStatuses(tasq.OpenTasks))
 		parameters["visibleAt"] = time.Now()
 	}
 

@@ -31,7 +31,7 @@ type IRepository interface {
 	RegisterFinish(ctx context.Context, task *Task, finishStatus TaskStatus) (*Task, error)
 
 	SubmitTask(ctx context.Context, task *Task) (*Task, error)
-	DeleteTask(ctx context.Context, task *Task, visibleOnly bool) error // TODO: visibleOnly is not a good indicator of a task that can be deleted. Find a better name.
+	DeleteTask(ctx context.Context, task *Task, pollableOnly bool) error
 	RequeueTask(ctx context.Context, task *Task) (*Task, error)
 
 	ScanTasks(ctx context.Context, taskStatuses []TaskStatus, taskTypes, queues []string, ordering Ordering, limit int) ([]*Task, error)
