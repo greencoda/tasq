@@ -306,7 +306,7 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 }
 
 // DeleteTask removes the supplied task from the queue.
-func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, pollableOnly bool) error {
+func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, safeDelete bool) error {
 	var (
 		conditions = []string{
 			`"id" = :taskID`,
@@ -316,17 +316,8 @@ func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, pollableOn
 		}
 	)
 
-	if pollableOnly {
-		conditions = append(conditions, `(
-			(
-				"status" = ANY(:statuses) AND
-				"visible_at" <= :visibleAt
-			) OR (
-				"visible_at" > :visibleAt
-			)
-		)`)
-		parameters["statuses"] = pq.Array(tasq.GetTaskStatuses(tasq.OpenTasks))
-		parameters["visibleAt"] = time.Now()
+	if safeDelete {
+		d.applySafeDeleteConditions(&conditions, &parameters)
 	}
 
 	sqlTemplate := `DELETE FROM {{.tableName}} WHERE ` + strings.Join(conditions, ` AND `) + `;`
@@ -365,9 +356,9 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 }
 
 // CountTasks returns the number of tasks in the queue based on the supplied filters.
-func (d *Repository) CountTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string) (int, error) {
+func (d *Repository) CountTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string) (int64, error) {
 	var (
-		count                   int
+		count                   int64
 		sqlTemplate, parameters = d.buildCountSQLTemplate(taskStatuses, taskTypes, queues)
 		stmt                    = d.prepareWithTableName(sqlTemplate)
 	)
@@ -394,6 +385,26 @@ func (d *Repository) ScanTasks(ctx context.Context, taskStatuses []tasq.TaskStat
 	}
 
 	return postgresTasksToTasks(scannedTasks), nil
+}
+
+// PurgeTasks removes all tasks from the queue based on the supplied filters.
+func (d *Repository) PurgeTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string, safeDelete bool) (int64, error) {
+	var (
+		sqlTemplate, parameters = d.buildPurgeSQLTemplate(taskStatuses, taskTypes, queues, safeDelete)
+		stmt                    = d.prepareWithTableName(sqlTemplate)
+	)
+
+	result, err := stmt.ExecContext(ctx, parameters)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("failed to purge tasks: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get number of affected rows: %w", err)
+	}
+
+	return rowsAffected, nil
 }
 
 func (d *Repository) buildCountSQLTemplate(taskStatuses []tasq.TaskStatus, taskTypes, queues []string) (string, map[string]any) {
@@ -427,6 +438,36 @@ func (d *Repository) buildScanSQLTemplate(taskStatuses []tasq.TaskStatus, taskTy
 	return sqlTemplate, parameters
 }
 
+func (d *Repository) buildPurgeSQLTemplate(taskStatuses []tasq.TaskStatus, taskTypes, queues []string, safeDelete bool) (string, map[string]any) {
+	var (
+		conditions, parameters = d.buildFilterConditions(taskStatuses, taskTypes, queues)
+		sqlTemplate            = `DELETE FROM {{.tableName}}`
+	)
+
+	if safeDelete {
+		d.applySafeDeleteConditions(&conditions, &parameters)
+	}
+
+	if len(conditions) > 0 {
+		sqlTemplate += ` WHERE ` + strings.Join(conditions, " AND ")
+	}
+
+	return sqlTemplate + `;`, parameters
+}
+
+func (d *Repository) applySafeDeleteConditions(conditions *[]string, parameters *map[string]any) {
+	*conditions = append(*conditions, `(
+			(
+				"visible_at" <= :visibleAt
+			) OR (
+				"status" = ANY(:statuses) AND 
+				"visible_at" > :visibleAt
+			)
+		)`)
+	(*parameters)["statuses"] = pq.Array([]tasq.TaskStatus{tasq.StatusNew})
+	(*parameters)["visibleAt"] = time.Now()
+}
+
 func (d *Repository) buildFilterConditions(taskStatuses []tasq.TaskStatus, taskTypes, queues []string) ([]string, map[string]any) {
 	var (
 		conditions []string
@@ -434,18 +475,18 @@ func (d *Repository) buildFilterConditions(taskStatuses []tasq.TaskStatus, taskT
 	)
 
 	if len(taskStatuses) > 0 {
-		conditions = append(conditions, `"status" = ANY(:statuses)`)
-		parameters["statuses"] = pq.Array(taskStatuses)
+		conditions = append(conditions, `"status" = ANY(:filterStatuses)`)
+		parameters["filterStatuses"] = pq.Array(taskStatuses)
 	}
 
 	if len(taskTypes) > 0 {
-		conditions = append(conditions, `"type" = ANY(:types)`)
-		parameters["types"] = pq.Array(taskTypes)
+		conditions = append(conditions, `"type" = ANY(:filterTypes)`)
+		parameters["filterTypes"] = pq.Array(taskTypes)
 	}
 
 	if len(queues) > 0 {
-		conditions = append(conditions, `"queue" = ANY(:queues)`)
-		parameters["queues"] = pq.Array(queues)
+		conditions = append(conditions, `"queue" = ANY(:filterQueues)`)
+		parameters["filterQueues"] = pq.Array(queues)
 	}
 
 	return conditions, parameters

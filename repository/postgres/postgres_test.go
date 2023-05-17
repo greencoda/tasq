@@ -20,7 +20,7 @@ import (
 
 var (
 	ctx         = context.Background()
-	testTask, _ = tasq.NewTask("testTask", true, "testQueue", 100, 5)
+	testTask    = getStartedTestTask()
 	taskColumns = []string{
 		"id",
 		"type",
@@ -36,10 +36,23 @@ var (
 		"finished_at",
 		"visible_at",
 	}
-	taskValues = postgres.GetTestTaskValues(testTask)
-	errSQL     = errors.New("sql error")
-	errTask    = errors.New("task error")
+	testTaskType  = "testTask"
+	testTaskQueue = "testQueue"
+	taskValues    = postgres.GetTestTaskValues(testTask)
+	errSQL        = errors.New("sql error")
+	errTask       = errors.New("task error")
 )
+
+func getStartedTestTask() *tasq.Task {
+	var (
+		testTask, _ = tasq.NewTask(testTaskType, true, testTaskQueue, 100, 5)
+		startTime   = testTask.CreatedAt.Add(time.Second)
+	)
+
+	testTask.StartedAt = &startTime
+
+	return testTask
+}
 
 type PostgresTestSuite struct {
 	suite.Suite
@@ -160,7 +173,7 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		) RETURNING *;`)
 
 	// polling with 0 limit
-	tasks, err := s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 0)
+	tasks, err := s.mockedRepository.PollTasks(ctx, []string{testTaskType}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 0)
 	assert.Len(s.T(), tasks, 0)
 	assert.Nil(s.T(), err)
 
@@ -169,7 +182,7 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		ExpectQuery().
 		WillReturnError(sql.ErrNoRows)
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{testTaskType}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 0)
 	assert.Nil(s.T(), err)
 
@@ -178,7 +191,7 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		ExpectQuery().
 		WillReturnError(errSQL)
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{testTaskType}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 0)
 	assert.NotNil(s.T(), err)
 
@@ -187,7 +200,7 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		ExpectQuery().
 		WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{testTaskType}, []string{"testQueue"}, 15*time.Second, tasq.OrderingCreatedAtFirst, 1)
 	assert.Len(s.T(), tasks, 1)
 	assert.Nil(s.T(), err)
 
@@ -196,7 +209,7 @@ func (s *PostgresTestSuite) TestPollTasks() {
 		ExpectQuery().
 		WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
 
-	tasks, err = s.mockedRepository.PollTasks(ctx, []string{"testTask"}, []string{"testQueue"}, 15*time.Second, -1, 1)
+	tasks, err = s.mockedRepository.PollTasks(ctx, []string{testTaskType}, []string{"testQueue"}, 15*time.Second, -1, 1)
 	assert.Len(s.T(), tasks, 1)
 	assert.Nil(s.T(), err)
 }
@@ -312,10 +325,10 @@ func (s *PostgresTestSuite) TestDeleteTask() {
 			"id" = $1 AND
 			(
 				(
-					"status" = ANY($2) AND 
-					"visible_at" <= $3
+					"visible_at" <= $2
 				) OR 
 				( 
+					"status" = ANY($3) AND 
 					"visible_at" > $4 
 				) 
 			);`)
@@ -358,25 +371,25 @@ func (s *PostgresTestSuite) TestRequeueTask() {
 	assert.Nil(s.T(), err)
 }
 
-func (s *PostgresTestSuite) TestCount() {
+func (s *PostgresTestSuite) TestCountTasks() {
 	stmtMockRegexp := regexp.QuoteMeta(`SELECT COUNT(*) FROM test_tasks WHERE "status" = ANY($1) AND "type" = ANY($2) AND "queue" = ANY($3)`)
 
 	// counting tasks when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
 
 	count, err := s.mockedRepository.CountTasks(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"})
-	assert.Equal(s.T(), count, 0)
+	assert.Equal(s.T(), int64(0), count)
 	assert.NotNil(s.T(), err)
 
 	// counting tasks successful
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
 
 	count, err = s.mockedRepository.CountTasks(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"})
-	assert.Equal(s.T(), count, 10)
+	assert.Equal(s.T(), int64(10), count)
 	assert.Nil(s.T(), err)
 }
 
-func (s *PostgresTestSuite) TestScan() {
+func (s *PostgresTestSuite) TestScanTasks() {
 	stmtMockRegexp := regexp.QuoteMeta(`SELECT * FROM test_tasks WHERE "status" = ANY($1) AND "type" = ANY($2) AND "queue" = ANY($3) ORDER BY $4 LIMIT $5;`)
 
 	// scanning tasks when DB returns error
@@ -391,6 +404,55 @@ func (s *PostgresTestSuite) TestScan() {
 
 	tasks, err = s.mockedRepository.ScanTasks(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"test"}, []string{"test"}, 0, 10)
 	assert.NotEmpty(s.T(), tasks)
+	assert.Nil(s.T(), err)
+}
+
+func (s *PostgresTestSuite) TestPurgeTasks() {
+	var (
+		stmtMockRegexp = regexp.QuoteMeta(`DELETE 
+			FROM 
+				test_tasks 
+			WHERE 
+				"status" = ANY($1) AND 
+				"queue" = ANY($2);`)
+		stmtSafeDeleteMockRegexp = regexp.QuoteMeta(`DELETE 
+			FROM 
+				test_tasks 
+			WHERE 
+				"status" = ANY($1) AND 
+				"queue" = ANY($2) AND 
+				( 
+					( "visible_at" <= $3 ) OR 
+					( "status" = ANY($4) AND "visible_at" > $5 ) 
+				);`)
+	)
+
+	// purging tasks when DB returns error
+	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectExec().WillReturnError(errSQL)
+
+	count, err := s.mockedRepository.PurgeTasks(ctx, []tasq.TaskStatus{tasq.StatusFailed}, []string{}, []string{testTaskQueue}, false)
+	assert.Equal(s.T(), int64(0), count)
+	assert.NotNil(s.T(), err)
+
+	// purging when no rows are found
+	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectExec().WillReturnResult(driver.ResultNoRows)
+
+	count, err = s.mockedRepository.PurgeTasks(ctx, []tasq.TaskStatus{tasq.StatusFailed}, []string{}, []string{testTaskQueue}, false)
+	assert.Equal(s.T(), int64(0), count)
+	assert.NotNil(s.T(), err)
+
+	// purging tasks successful
+	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectExec().WillReturnResult(sqlmock.NewResult(1, 1))
+
+	count, err = s.mockedRepository.PurgeTasks(ctx, []tasq.TaskStatus{tasq.StatusFailed}, []string{}, []string{testTaskQueue}, false)
+	assert.Equal(s.T(), int64(1), count)
+	assert.Nil(s.T(), err)
+
+	// purging tasks with safeDelete successful
+	s.sqlMock.ExpectPrepare(stmtSafeDeleteMockRegexp).ExpectExec().WillReturnResult(sqlmock.NewResult(1, 1))
+
+	count, err = s.mockedRepository.PurgeTasks(ctx, []tasq.TaskStatus{tasq.StatusFailed}, []string{}, []string{testTaskQueue}, true)
+	assert.Equal(s.T(), int64(1), count)
 	assert.Nil(s.T(), err)
 }
 

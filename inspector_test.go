@@ -40,17 +40,17 @@ func (s *InspectorTestSuite) TestNewCleaner() {
 func (s *InspectorTestSuite) TestCount() {
 	ctx := context.Background()
 
-	s.mockRepository.On("CountTasks", ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"}).Return(1, nil).Once()
+	s.mockRepository.On("CountTasks", ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"}).Return(int64(1), nil).Once()
 
 	taskCount, err := s.tasqInspector.Count(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"})
-	assert.Equal(s.T(), 1, taskCount)
+	assert.Equal(s.T(), int64(1), taskCount)
 	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "CountTasks", ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"}))
 	assert.Nil(s.T(), err)
 
-	s.mockRepository.On("CountTasks", ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"}).Return(0, errRepository).Once()
+	s.mockRepository.On("CountTasks", ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"}).Return(int64(0), errRepository).Once()
 
 	taskCount, err = s.tasqInspector.Count(ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"})
-	assert.Equal(s.T(), 0, taskCount)
+	assert.Equal(s.T(), int64(0), taskCount)
 	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "CountTasks", ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"}))
 	assert.NotNil(s.T(), err)
 }
@@ -77,7 +77,25 @@ func (s *InspectorTestSuite) TestScan() {
 	assert.NotNil(s.T(), err)
 }
 
-func (s *InspectorTestSuite) TestRemove() {
+func (s *InspectorTestSuite) TestPurge() {
+	ctx := context.Background()
+
+	s.mockRepository.On("PurgeTasks", ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"}, true).Return(int64(10), nil).Once()
+
+	count, err := s.tasqInspector.Purge(ctx, true, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"})
+	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "PurgeTasks", ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"}, true))
+	assert.Equal(s.T(), int64(10), count)
+	assert.Nil(s.T(), err)
+
+	s.mockRepository.On("PurgeTasks", ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"}, true).Return(int64(0), errRepository).Once()
+
+	count, err = s.tasqInspector.Purge(ctx, true, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"})
+	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "PurgeTasks", ctx, []tasq.TaskStatus{tasq.StatusNew}, []string{"testType"}, []string{"testQueue"}, true))
+	assert.Equal(s.T(), int64(0), count)
+	assert.NotNil(s.T(), err)
+}
+
+func (s *InspectorTestSuite) TestDelete() {
 	ctx := context.Background()
 
 	testTask, err := tasq.NewTask("testTask", true, "testQueue", 100, 5)
@@ -86,13 +104,13 @@ func (s *InspectorTestSuite) TestRemove() {
 
 	s.mockRepository.On("DeleteTask", ctx, testTask, true).Once().Return(errRepository)
 
-	err = s.tasqInspector.Delete(ctx, testTask)
+	err = s.tasqInspector.Delete(ctx, true, testTask)
 	assert.NotNil(s.T(), err)
 	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "DeleteTask", ctx, testTask, true))
 
 	s.mockRepository.On("DeleteTask", ctx, testTask, true).Once().Return(nil)
 
-	err = s.tasqInspector.Delete(ctx, testTask)
+	err = s.tasqInspector.Delete(ctx, true, testTask)
 	assert.Nil(s.T(), err)
 	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "DeleteTask", ctx, testTask, true))
 }

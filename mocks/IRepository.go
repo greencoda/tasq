@@ -43,18 +43,18 @@ func (_m *IRepository) CleanTasks(ctx context.Context, minimumAge time.Duration)
 }
 
 // CountTasks provides a mock function with given fields: ctx, taskStatuses, taskTypes, queues
-func (_m *IRepository) CountTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes []string, queues []string) (int, error) {
+func (_m *IRepository) CountTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes []string, queues []string) (int64, error) {
 	ret := _m.Called(ctx, taskStatuses, taskTypes, queues)
 
-	var r0 int
+	var r0 int64
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, []tasq.TaskStatus, []string, []string) (int, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []tasq.TaskStatus, []string, []string) (int64, error)); ok {
 		return rf(ctx, taskStatuses, taskTypes, queues)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, []tasq.TaskStatus, []string, []string) int); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []tasq.TaskStatus, []string, []string) int64); ok {
 		r0 = rf(ctx, taskStatuses, taskTypes, queues)
 	} else {
-		r0 = ret.Get(0).(int)
+		r0 = ret.Get(0).(int64)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, []tasq.TaskStatus, []string, []string) error); ok {
@@ -66,13 +66,13 @@ func (_m *IRepository) CountTasks(ctx context.Context, taskStatuses []tasq.TaskS
 	return r0, r1
 }
 
-// DeleteTask provides a mock function with given fields: ctx, task, pollableOnly
-func (_m *IRepository) DeleteTask(ctx context.Context, task *tasq.Task, pollableOnly bool) error {
-	ret := _m.Called(ctx, task, pollableOnly)
+// DeleteTask provides a mock function with given fields: ctx, task, safeDelete
+func (_m *IRepository) DeleteTask(ctx context.Context, task *tasq.Task, safeDelete bool) error {
+	ret := _m.Called(ctx, task, safeDelete)
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, *tasq.Task, bool) error); ok {
-		r0 = rf(ctx, task, pollableOnly)
+		r0 = rf(ctx, task, safeDelete)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -139,6 +139,30 @@ func (_m *IRepository) PollTasks(ctx context.Context, types []string, queues []s
 
 	if rf, ok := ret.Get(1).(func(context.Context, []string, []string, time.Duration, tasq.Ordering, int) error); ok {
 		r1 = rf(ctx, types, queues, visibilityTimeout, ordering, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// PurgeTasks provides a mock function with given fields: ctx, taskStatuses, taskTypes, queues, safeDelete
+func (_m *IRepository) PurgeTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes []string, queues []string, safeDelete bool) (int64, error) {
+	ret := _m.Called(ctx, taskStatuses, taskTypes, queues, safeDelete)
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []tasq.TaskStatus, []string, []string, bool) (int64, error)); ok {
+		return rf(ctx, taskStatuses, taskTypes, queues, safeDelete)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []tasq.TaskStatus, []string, []string, bool) int64); ok {
+		r0 = rf(ctx, taskStatuses, taskTypes, queues, safeDelete)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []tasq.TaskStatus, []string, []string, bool) error); ok {
+		r1 = rf(ctx, taskStatuses, taskTypes, queues, safeDelete)
 	} else {
 		r1 = ret.Error(1)
 	}
