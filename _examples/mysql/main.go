@@ -118,7 +118,7 @@ func inspectTasks(ctx context.Context, inspector *tasq.Inspector) {
 				continue
 			}
 
-			err = inspector.Delete(ctx, task)
+			err = inspector.Delete(ctx, true, task)
 			if err != nil {
 				log.Printf("failed to remove task '%s'", task.ID)
 
@@ -220,4 +220,11 @@ func main() {
 
 	// wait until consumer go routine exits
 	consumerWg.Wait()
+
+	purgedTaskCount, err := inspector.Purge(ctx, true, tasq.GetTaskStatuses(tasq.OpenTasks), []string{taskType}, []string{taskQueue})
+	if err != nil {
+		log.Panicf("failed to purge tasq queue: %s", err)
+	}
+
+	log.Printf("purged %d open tasks from the queue", purgedTaskCount)
 }
