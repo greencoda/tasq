@@ -385,18 +385,19 @@ func (c *Consumer) processLoop(ctx context.Context, ticker *clock.Ticker) {
 	defer c.logger.Print("processing stopped")
 	defer ticker.Stop()
 
-	var loopID int
+	var (
+		tasks []*Task
+		err   error
+	)
 
 	for {
-		loopID++
-
-		err := c.pingActiveTasks(ctx)
+		err = c.pingActiveTasks(ctx)
 		if err != nil {
 			c.logger.Printf("error pinging active tasks: %s", err)
 		}
 
 		if c.isRunning() {
-			tasks, err := c.pollForTasks(ctx)
+			tasks, err = c.pollForTasks(ctx)
 			if err != nil {
 				c.logger.Printf("error polling for tasks: %s", err)
 			}
