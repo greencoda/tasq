@@ -27,7 +27,7 @@ docker-compose -f _examples/<example_repo_name>/docker-compose.yml up -d
 
 Afterwards simply run the example.go file
 ```shell
-go run _example/<example_repo_name>/main.go
+go run _examples/<example_repo_name>/main.go
 ```
 
 [godoc-badge]: https://pkg.go.dev/badge/github.com/greencoda/tasq

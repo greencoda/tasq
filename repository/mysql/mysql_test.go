@@ -36,14 +36,16 @@ var (
 		"finished_at",
 		"visible_at",
 	}
-	taskValues = mysql.GetTestTaskValues(testTask)
-	errSQL     = errors.New("sql error")
-	errTask    = errors.New("task error")
+	testTaskType  = "testTask"
+	testTaskQueue = "testQueue"
+	taskValues    = mysql.GetTestTaskValues(testTask)
+	errSQL        = errors.New("sql error")
+	errTask       = errors.New("task error")
 )
 
 func getStartedTestTask() *tasq.Task {
 	var (
-		testTask, _ = tasq.NewTask("testTask", true, "testQueue", 100, 5)
+		testTask, _ = tasq.NewTask(testTaskType, true, testTaskQueue, 100, 5)
 		startTime   = testTask.CreatedAt.Add(time.Second)
 	)
 
@@ -623,22 +625,148 @@ func (s *MySQLTestSuite) TestSubmitTask() {
 }
 
 func (s *MySQLTestSuite) TestDeleteTask() {
-	deleteMockRegexp := regexp.QuoteMeta(`DELETE 
-		FROM 
-			test_tasks
-		WHERE
-			id = ?;`)
+	var (
+		deleteMockRegexp = regexp.QuoteMeta(`DELETE 
+			FROM 
+				test_tasks
+			WHERE
+				id = ?;`)
+		deleteSafeDeleteMockRegexp = regexp.QuoteMeta(`DELETE 
+			FROM 
+				test_tasks 
+			WHERE 
+				id = ? AND 
+				(
+					(
+						visible_at <= ? 
+					) OR 
+					( 
+						status IN (?) AND 
+						visible_at > ? 
+					) 
+				);`)
+	)
 
-	// deleting when DB returns error
+	// deleting task when DB returns error
 	s.sqlMock.ExpectExec(deleteMockRegexp).WillReturnError(errSQL)
 
-	err := s.mockedRepository.DeleteTask(ctx, testTask)
+	err := s.mockedRepository.DeleteTask(ctx, testTask, false)
 	assert.NotNil(s.T(), err)
 
-	// deleting successful
+	// deleting task successful
 	s.sqlMock.ExpectExec(deleteMockRegexp).WillReturnResult(sqlmock.NewResult(1, 1))
 
-	err = s.mockedRepository.DeleteTask(ctx, testTask)
+	err = s.mockedRepository.DeleteTask(ctx, testTask, false)
+	assert.Nil(s.T(), err)
+
+	// deleting invisible task successful
+	s.sqlMock.ExpectExec(deleteSafeDeleteMockRegexp).WillReturnResult(sqlmock.NewResult(1, 1))
+
+	err = s.mockedRepository.DeleteTask(ctx, testTask, true)
+	assert.Nil(s.T(), err)
+}
+
+func (s *MySQLTestSuite) TestCountTasks() {
+	selectMockRegexp := regexp.QuoteMeta(`SELECT
+			COUNT(*)
+		FROM
+			test_tasks
+		WHERE 
+			status IN (?) AND 
+			type IN (?) AND
+			queue IN (?);`)
+
+	// counting when DB returns error
+	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnError(errSQL)
+
+	count, err := s.mockedRepository.CountTasks(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue})
+	assert.Equal(s.T(), int64(0), count)
+	assert.NotNil(s.T(), err)
+
+	// counting successful
+	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
+
+	count, err = s.mockedRepository.CountTasks(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue})
+	assert.Equal(s.T(), int64(10), count)
+	assert.Nil(s.T(), err)
+}
+
+func (s *MySQLTestSuite) TestScanTasks() {
+	selectMockRegexp := regexp.QuoteMeta(`SELECT
+			*
+		FROM
+			test_tasks
+		WHERE
+			status IN (?) AND
+			type IN (?) AND
+			queue IN (?) 
+		ORDER BY ? 
+		LIMIT ?;`)
+
+	// scanning when DB returns error
+	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnError(errSQL)
+
+	tasks, err := s.mockedRepository.ScanTasks(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue}, tasq.OrderingCreatedAtFirst, 10)
+	assert.Empty(s.T(), tasks)
+	assert.NotNil(s.T(), err)
+
+	// scanning successful
+	s.sqlMock.ExpectQuery(selectMockRegexp).WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
+
+	tasks, err = s.mockedRepository.ScanTasks(ctx, []tasq.TaskStatus{testTask.Status}, []string{testTask.Type}, []string{testTask.Queue}, tasq.OrderingCreatedAtFirst, 10)
+	assert.NotEmpty(s.T(), tasks)
+	assert.Nil(s.T(), err)
+}
+
+func (s *MySQLTestSuite) TestPurgeTasks() {
+	var (
+		purgeMockRegexp = regexp.QuoteMeta(`DELETE 
+			FROM 
+				test_tasks 
+			WHERE 
+				status IN (?) AND 
+				queue IN (?);`)
+		purgeSafeDeleteMockRegexp = regexp.QuoteMeta(`DELETE 
+			FROM
+				test_tasks
+			WHERE
+				status IN (?) AND
+				queue IN (?) AND 
+				( 
+					( visible_at <= ? ) OR 
+					( 
+						status IN (?) AND 
+						visible_at > ? 
+					) 
+				);`)
+	)
+
+	// purging tasks when DB returns error
+	s.sqlMock.ExpectExec(purgeMockRegexp).WillReturnError(errSQL)
+
+	count, err := s.mockedRepository.PurgeTasks(ctx, []tasq.TaskStatus{tasq.StatusFailed}, []string{}, []string{testTaskQueue}, false)
+	assert.Equal(s.T(), int64(0), count)
+	assert.NotNil(s.T(), err)
+
+	// purging when no rows are found
+	s.sqlMock.ExpectExec(purgeMockRegexp).WillReturnResult(driver.ResultNoRows)
+
+	count, err = s.mockedRepository.PurgeTasks(ctx, []tasq.TaskStatus{tasq.StatusFailed}, []string{}, []string{testTaskQueue}, false)
+	assert.Equal(s.T(), int64(0), count)
+	assert.NotNil(s.T(), err)
+
+	// purging tasks successful
+	s.sqlMock.ExpectExec(purgeMockRegexp).WillReturnResult(sqlmock.NewResult(1, 1))
+
+	count, err = s.mockedRepository.PurgeTasks(ctx, []tasq.TaskStatus{tasq.StatusFailed}, []string{}, []string{testTaskQueue}, false)
+	assert.Equal(s.T(), int64(1), count)
+	assert.Nil(s.T(), err)
+
+	// purging tasks with safeDelete successful
+	s.sqlMock.ExpectExec(purgeSafeDeleteMockRegexp).WillReturnResult(sqlmock.NewResult(1, 1))
+
+	count, err = s.mockedRepository.PurgeTasks(ctx, []tasq.TaskStatus{tasq.StatusFailed}, []string{}, []string{testTaskQueue}, true)
+	assert.Equal(s.T(), int64(1), count)
 	assert.Nil(s.T(), err)
 }
 

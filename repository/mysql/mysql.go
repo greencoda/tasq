@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 )
 
 const driverName = "mysql"
@@ -499,19 +500,24 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 }
 
 // DeleteTask removes the supplied task from the queue.
-func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task) error {
-	const deleteTaskSQLTemplate = `DELETE 
-		FROM 
-			{{.tableName}}
-		WHERE
-			id = :taskID;`
-
+func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, safeDelete bool) error {
 	var (
-		mySQLTask                       = newFromTask(task)
-		deleteTaskQuery, deleteTaskArgs = d.getQueryWithTableName(deleteTaskSQLTemplate, map[string]any{
+		mySQLTask  = newFromTask(task)
+		conditions = []string{
+			`id = :taskID`,
+		}
+		parameters = map[string]any{
 			"taskID": mySQLTask.ID,
-		})
+		}
 	)
+
+	if safeDelete {
+		d.applySafeDeleteConditions(&conditions, &parameters)
+	}
+
+	deleteTaskSQLTemplate := `DELETE FROM {{.tableName}} WHERE ` + strings.Join(conditions, ` AND `) + `;`
+
+	deleteTaskQuery, deleteTaskArgs := d.getQueryWithTableName(deleteTaskSQLTemplate, parameters)
 
 	_, err := d.db.ExecContext(ctx, deleteTaskQuery, deleteTaskArgs...)
 	if err != nil {
@@ -573,6 +579,144 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 	}
 
 	return mySQLTask.toTask(), err
+}
+
+// CountTasks returns the number of tasks in the queue based on the supplied filters.
+func (d *Repository) CountTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string) (int64, error) {
+	var (
+		count                                     int64
+		selectTaskCountQuery, selectTaskCountArgs = d.getQueryWithTableName(
+			d.buildCountSQLTemplate(taskStatuses, taskTypes, queues),
+		)
+	)
+
+	err := d.db.GetContext(ctx, &count, selectTaskCountQuery, selectTaskCountArgs...)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+	}
+
+	return count, nil
+}
+
+// ScanTasks returns a list of tasks in the queue based on the supplied filters.
+func (d *Repository) ScanTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string, ordering tasq.Ordering, scanLimit int) ([]*tasq.Task, error) {
+	var (
+		scannedTasks                                    []*mySQLTask
+		selectScannedTasksQuery, selectScannedTasksArgs = d.getQueryWithTableName(
+			d.buildScanSQLTemplate(taskStatuses, taskTypes, queues, ordering, scanLimit),
+		)
+	)
+
+	err := d.db.SelectContext(ctx, &scannedTasks, selectScannedTasksQuery, selectScannedTasksArgs...)
+	if err != nil {
+		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+	}
+
+	return mySQLTasksToTasks(scannedTasks), nil
+}
+
+// PurgeTasks removes all tasks from the queue based on the supplied filters.
+func (d *Repository) PurgeTasks(ctx context.Context, taskStatuses []tasq.TaskStatus, taskTypes, queues []string, safeDelete bool) (int64, error) {
+	selectPurgedTasksQuery, selectPurgedTasksArgs := d.getQueryWithTableName(
+		d.buildPurgeSQLTemplate(taskStatuses, taskTypes, queues, safeDelete),
+	)
+
+	result, err := d.db.ExecContext(ctx, selectPurgedTasksQuery, selectPurgedTasksArgs...)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", errFailedToExecuteDelete, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", errFailedGetRowsAffected, err)
+	}
+
+	return rowsAffected, nil
+}
+
+func (d *Repository) buildCountSQLTemplate(taskStatuses []tasq.TaskStatus, taskTypes, queues []string) (string, map[string]any) {
+	var (
+		conditions, parameters = d.buildFilterConditions(taskStatuses, taskTypes, queues)
+		sqlTemplate            = `SELECT COUNT(*) FROM {{.tableName}}`
+	)
+
+	if len(conditions) > 0 {
+		sqlTemplate += ` WHERE ` + strings.Join(conditions, " AND ")
+	}
+
+	return sqlTemplate + `;`, parameters
+}
+
+func (d *Repository) buildScanSQLTemplate(taskStatuses []tasq.TaskStatus, taskTypes, queues []string, ordering tasq.Ordering, scanLimit int) (string, map[string]any) {
+	var (
+		conditions, parameters = d.buildFilterConditions(taskStatuses, taskTypes, queues)
+		sqlTemplate            = `SELECT * FROM {{.tableName}}`
+	)
+
+	if len(conditions) > 0 {
+		sqlTemplate += ` WHERE ` + strings.Join(conditions, " AND ")
+	}
+
+	sqlTemplate += ` ORDER BY :scanOrdering LIMIT :limit;`
+
+	parameters["scanOrdering"] = pq.Array(getOrderingDirectives(ordering))
+	parameters["limit"] = scanLimit
+
+	return sqlTemplate + `;`, parameters
+}
+
+func (d *Repository) buildPurgeSQLTemplate(taskStatuses []tasq.TaskStatus, taskTypes, queues []string, safeDelete bool) (string, map[string]any) {
+	var (
+		conditions, parameters = d.buildFilterConditions(taskStatuses, taskTypes, queues)
+		sqlTemplate            = `DELETE FROM {{.tableName}}`
+	)
+
+	if safeDelete {
+		d.applySafeDeleteConditions(&conditions, &parameters)
+	}
+
+	if len(conditions) > 0 {
+		sqlTemplate += ` WHERE ` + strings.Join(conditions, " AND ")
+	}
+
+	return sqlTemplate + `;`, parameters
+}
+
+func (d *Repository) applySafeDeleteConditions(conditions *[]string, parameters *map[string]any) {
+	*conditions = append(*conditions, `(
+			(
+				visible_at <= :visibleAt
+			) OR (
+				status IN (:statuses) AND 
+				visible_at > :visibleAt
+			)
+		)`)
+	(*parameters)["statuses"] = []tasq.TaskStatus{tasq.StatusNew}
+	(*parameters)["visibleAt"] = time.Now()
+}
+
+func (d *Repository) buildFilterConditions(taskStatuses []tasq.TaskStatus, taskTypes, queues []string) ([]string, map[string]any) {
+	var (
+		conditions []string
+		parameters = make(map[string]any)
+	)
+
+	if len(taskStatuses) > 0 {
+		conditions = append(conditions, `status IN (:filterStatuses)`)
+		parameters["filterStatuses"] = taskStatuses
+	}
+
+	if len(taskTypes) > 0 {
+		conditions = append(conditions, `type IN (:filterTypes)`)
+		parameters["filterTypes"] = taskTypes
+	}
+
+	if len(queues) > 0 {
+		conditions = append(conditions, `queue IN (:filterQueues)`)
+		parameters["filterQueues"] = queues
+	}
+
+	return conditions, parameters
 }
 
 func (d *Repository) getQueryWithTableName(sqlTemplate string, args ...any) (string, []any) {

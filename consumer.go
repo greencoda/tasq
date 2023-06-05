@@ -46,6 +46,7 @@ const (
 )
 
 const (
+	defaultQueue               = ""
 	defaultChannelSize         = 10
 	defaultPollInterval        = 5 * time.Second
 	defaultPollStrategy        = PollStrategyByCreatedAt
@@ -112,7 +113,7 @@ func (c *Client) NewConsumer() *Consumer {
 		activeTasks: make(map[uuid.UUID]struct{}),
 
 		visibilityTimeout: defaultVisibilityTimeout,
-		queues:            []string{""},
+		queues:            []string{defaultQueue},
 
 		stop: make(chan struct{}, 1),
 	}
@@ -297,7 +298,7 @@ func (c *Consumer) registerTaskError(ctx context.Context, task *Task, taskError 
 
 func (c *Consumer) registerTaskSuccess(ctx context.Context, task *Task) {
 	if c.autoDeleteOnSuccess {
-		err := c.client.repository.DeleteTask(ctx, task)
+		err := c.client.repository.DeleteTask(ctx, task, false)
 		if err != nil {
 			panic(err)
 		}
@@ -384,18 +385,19 @@ func (c *Consumer) processLoop(ctx context.Context, ticker *clock.Ticker) {
 	defer c.logger.Print("processing stopped")
 	defer ticker.Stop()
 
-	var loopID int
+	var (
+		tasks []*Task
+		err   error
+	)
 
 	for {
-		loopID++
-
-		err := c.pingActiveTasks(ctx)
+		err = c.pingActiveTasks(ctx)
 		if err != nil {
 			c.logger.Printf("error pinging active tasks: %s", err)
 		}
 
 		if c.isRunning() {
-			tasks, err := c.pollForTasks(ctx)
+			tasks, err = c.pollForTasks(ctx)
 			if err != nil {
 				c.logger.Printf("error polling for tasks: %s", err)
 			}

@@ -18,6 +18,11 @@ linters:
 linters-settings:
   paralleltest:
     ignore-missing: true
+  interfacebloat:
+    max: 20
+  gosec:
+    excludes:
+    - G404
 
 issues:
   exclude-use-default: false
