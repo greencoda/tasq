@@ -103,6 +103,8 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
+	defer d.closeStmt(stmt)
+
 	err := stmt.SelectContext(ctx, &pingedTasks, map[string]any{
 		"visibleAt":     pingTime.Add(visibilityTimeout),
 		"pingedTaskIDs": pq.Array(taskIDs),
@@ -145,6 +147,8 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
+	defer d.closeStmt(stmt)
+
 	err := stmt.SelectContext(ctx, &polledTasks, map[string]any{
 		"status":       tasq.StatusEnqueued,
 		"visibleAt":    pollTime.Add(visibilityTimeout),
@@ -173,6 +177,8 @@ func (d *Repository) CleanTasks(ctx context.Context, cleanAge time.Duration) (in
 				"created_at" <= :cleanAt;`
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
+
+	defer d.closeStmt(stmt)
 
 	result, err := stmt.ExecContext(ctx, map[string]any{
 		"statuses": pq.Array(tasq.GetTaskStatuses(tasq.FinishedTasks)),
@@ -205,6 +211,8 @@ func (d *Repository) RegisterStart(ctx context.Context, task *tasq.Task) (*tasq.
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
+	defer d.closeStmt(stmt)
+
 	err := stmt.
 		QueryRowContext(ctx, map[string]any{
 			"status":    tasq.StatusInProgress,
@@ -230,6 +238,8 @@ func (d *Repository) RegisterError(ctx context.Context, task *tasq.Task, errTask
 			RETURNING *;`
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
+
+	defer d.closeStmt(stmt)
 
 	err := stmt.
 		QueryRowContext(ctx, map[string]any{
@@ -259,6 +269,8 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finish
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
 
+	defer d.closeStmt(stmt)
+
 	err := stmt.
 		QueryRowContext(ctx, map[string]any{
 			"status":     finishStatus,
@@ -284,6 +296,8 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 			RETURNING *;`
 		stmt = d.prepareWithTableName(sqlTemplate)
 	)
+
+	defer d.closeStmt(stmt)
 
 	err := stmt.
 		QueryRowContext(ctx, map[string]any{
@@ -555,6 +569,16 @@ func (d *Repository) prepareWithTableName(sqlTemplate string) *sqlx.NamedStmt {
 	}
 
 	return namedStmt
+}
+
+type closeableStmt interface {
+	Close() error
+}
+
+func (d *Repository) closeStmt(stmt closeableStmt) {
+	if err := stmt.Close(); err != nil {
+		panic(err)
+	}
 }
 
 func getOrderingDirectives(ordering tasq.Ordering) []string {
