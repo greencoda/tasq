@@ -470,6 +470,31 @@ func (s *PostgresTestSuite) TestPrepareWithTableName() {
 	})
 }
 
+func (s *PostgresTestSuite) TestCloseNamedStmt() {
+	stmtMockRegexp := regexp.QuoteMeta(`SELECT * FROM test_tasks`)
+
+	postgresRepository, ok := s.mockedRepository.(*postgres.Repository)
+	require.True(s.T(), ok)
+
+	s.sqlMock.ExpectPrepare(stmtMockRegexp)
+
+	stmt, err := s.db.Prepare("SELECT * FROM test_tasks")
+	require.Nil(s.T(), err)
+
+	// an alternative DB to test the panic
+	altDB, altSQLMock, err := sqlmock.New()
+	require.Nil(s.T(), err)
+
+	altSQLMock.ExpectBegin()
+
+	tx, err := altDB.Begin()
+	require.Nil(s.T(), err)
+
+	assert.PanicsWithError(s.T(), "sql: Tx.Stmt: statement from different database used", func() {
+		postgresRepository.CloseNamedStmt(tx.Stmt(stmt))
+	})
+}
+
 func (s *PostgresTestSuite) TestInterpolateSQL() {
 	params := map[string]any{"tableName": "test_table"}
 

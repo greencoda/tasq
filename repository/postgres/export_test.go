@@ -28,12 +28,16 @@ func GetTestTaskValues(task *tasq.Task) []driver.Value {
 	}
 }
 
-func InterpolateSQL(sql string, params map[string]any) string {
-	return interpolateSQL(sql, params)
-}
-
 func (d *Repository) PrepareWithTableName(sqlTemplate string) *sqlx.NamedStmt {
 	return d.prepareWithTableName(sqlTemplate)
+}
+
+func (d *Repository) CloseNamedStmt(stmt closeableStmt) {
+	d.closeStmt(stmt)
+}
+
+func InterpolateSQL(sql string, params map[string]any) string {
+	return interpolateSQL(sql, params)
 }
 
 func StringToSQLNullString(input *string) sql.NullString {
