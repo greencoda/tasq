@@ -81,6 +81,7 @@ type Consumer struct {
 
 	handlerFuncMap map[string]HandlerFunc
 
+	activeMutex sync.RWMutex
 	activeTasks map[uuid.UUID]struct{}
 
 	visibilityTimeout time.Duration
@@ -110,6 +111,7 @@ func (c *Client) NewConsumer() *Consumer {
 
 		handlerFuncMap: make(map[string]HandlerFunc),
 
+		activeMutex: sync.RWMutex{},
 		activeTasks: make(map[uuid.UUID]struct{}),
 
 		visibilityTimeout: defaultVisibilityTimeout,
@@ -335,7 +337,9 @@ func (c *Consumer) getActiveTaskCount() int {
 }
 
 func (c *Consumer) removeFromActiveTasks(task *Task) {
+	c.activeMutex.Lock()
 	delete(c.activeTasks, task.ID)
+	c.activeMutex.Unlock()
 }
 
 func (c *Consumer) getActiveTaskIDs() []uuid.UUID {
@@ -468,7 +472,9 @@ func (c *Consumer) activateTask(ctx context.Context, task *Task) error {
 		return err
 	}
 
+	c.activeMutex.Lock()
 	c.activeTasks[task.ID] = struct{}{}
+	c.activeMutex.Unlock()
 
 	c.channel <- job
 
