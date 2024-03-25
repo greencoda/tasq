@@ -1,7 +1,6 @@
 .PHONY: deps lint mocks test test-cover
 .SILENT: test test-cover
 
-BINARY_NAME = crimson
 TESTABLE_PACKAGES = $(shell go list ./... | grep -v ./mocks)
 
 deps:
