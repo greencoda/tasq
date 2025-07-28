@@ -104,7 +104,7 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
+		return []*tasq.Task{}, fmt.Errorf("%w: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -119,7 +119,7 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 
 	_, err = tx.ExecContext(ctx, updatePingedTasksQuery, updatePingedTasksArgs...)
 	if err != nil {
-		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
+		return []*tasq.Task{}, fmt.Errorf("%w: %w", errFailedToExecuteUpdate, err)
 	}
 
 	var (
@@ -131,12 +131,12 @@ func (d *Repository) PingTasks(ctx context.Context, taskIDs []uuid.UUID, visibil
 
 	err = tx.SelectContext(ctx, &pingedMySQLTasks, selectPingedTasksQuery, selectPingedTasksArgs...)
 	if err != nil {
-		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+		return []*tasq.Task{}, fmt.Errorf("%w: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
+		return []*tasq.Task{}, fmt.Errorf("%w: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTasksToTasks(pingedMySQLTasks), nil
@@ -181,7 +181,7 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
+		return []*tasq.Task{}, fmt.Errorf("%w: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -201,7 +201,7 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 
 	err = tx.SelectContext(ctx, &polledTaskIDs, selectPolledTasksQuery, selectPolledTasksArgs...)
 	if err != nil {
-		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+		return []*tasq.Task{}, fmt.Errorf("%w: %w", errFailedToExecuteSelect, err)
 	}
 
 	if len(polledTaskIDs) == 0 {
@@ -216,7 +216,7 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 
 	_, err = tx.ExecContext(ctx, updatePolledTasksQuery, updatePolledTasksArgs...)
 	if err != nil {
-		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
+		return []*tasq.Task{}, fmt.Errorf("%w: %w", errFailedToExecuteUpdate, err)
 	}
 
 	var (
@@ -228,12 +228,12 @@ func (d *Repository) PollTasks(ctx context.Context, types, queues []string, visi
 
 	err = tx.SelectContext(ctx, &polledMySQLTasks, selectUpdatedTasksQuery, selectUpdatedTasksArgs...)
 	if err != nil {
-		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+		return []*tasq.Task{}, fmt.Errorf("%w: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
+		return []*tasq.Task{}, fmt.Errorf("%w: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTasksToTasks(polledMySQLTasks), nil
@@ -258,12 +258,12 @@ func (d *Repository) CleanTasks(ctx context.Context, cleanAge time.Duration) (in
 
 	result, err := d.db.ExecContext(ctx, cleanTasksQuery, cleanTasksArgs...)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", errFailedToExecuteDelete, err)
+		return 0, fmt.Errorf("%w: %w", errFailedToExecuteDelete, err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", errFailedGetRowsAffected, err)
+		return 0, fmt.Errorf("%w: %w", errFailedGetRowsAffected, err)
 	}
 
 	return rowsAffected, nil
@@ -289,7 +289,7 @@ func (d *Repository) RegisterStart(ctx context.Context, task *tasq.Task) (*tasq.
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -306,7 +306,7 @@ func (d *Repository) RegisterStart(ctx context.Context, task *tasq.Task) (*tasq.
 
 	_, err = tx.ExecContext(ctx, updateTaskQuery, updateTaskArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteUpdate, err)
 	}
 
 	selectUpdatedTaskQuery, selectUpdatedTaskArgs := d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
@@ -316,12 +316,12 @@ func (d *Repository) RegisterStart(ctx context.Context, task *tasq.Task) (*tasq.
 	err = tx.QueryRowxContext(ctx, selectUpdatedTaskQuery, selectUpdatedTaskArgs...).
 		StructScan(mySQLTask)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTask.toTask(), nil
@@ -345,7 +345,7 @@ func (d *Repository) RegisterError(ctx context.Context, task *tasq.Task, errTask
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -360,7 +360,7 @@ func (d *Repository) RegisterError(ctx context.Context, task *tasq.Task, errTask
 
 	_, err = tx.ExecContext(ctx, updateTaskQuery, updateTaskArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteUpdate, err)
 	}
 
 	selectUpdatedTaskQuery, selectUpdatedTaskArgs := d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
@@ -370,12 +370,12 @@ func (d *Repository) RegisterError(ctx context.Context, task *tasq.Task, errTask
 	err = tx.QueryRowxContext(ctx, selectUpdatedTaskQuery, selectUpdatedTaskArgs...).
 		StructScan(mySQLTask)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTask.toTask(), nil
@@ -401,7 +401,7 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finish
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -418,7 +418,7 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finish
 
 	_, err = tx.ExecContext(ctx, updateTasksQuery, updateTasksArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteUpdate, err)
 	}
 
 	selectUpdatedTasksQuery, selectUpdatedTasksArgs := d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
@@ -428,12 +428,12 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finish
 	err = tx.QueryRowxContext(ctx, selectUpdatedTasksQuery, selectUpdatedTasksArgs...).
 		StructScan(mySQLTask)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTask.toTask(), nil
@@ -456,7 +456,7 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -478,7 +478,7 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 
 	_, err = tx.ExecContext(ctx, insertTaskQuery, insertTaskArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteInsert, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteInsert, err)
 	}
 
 	selectInsertedTaskQuery, selectInsertedTaskArgs := d.getQueryWithTableName(selectInsertedTaskSQLTemplate, map[string]any{
@@ -488,12 +488,12 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 	err = tx.QueryRowxContext(ctx, selectInsertedTaskQuery, selectInsertedTaskArgs...).
 		StructScan(mySQLTask)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTask.toTask(), nil
@@ -521,7 +521,7 @@ func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, safeDelete
 
 	_, err := d.db.ExecContext(ctx, deleteTaskQuery, deleteTaskArgs...)
 	if err != nil {
-		return fmt.Errorf("%s: %w", errFailedToExecuteDelete, err)
+		return fmt.Errorf("%w: %w", errFailedToExecuteDelete, err)
 	}
 
 	return nil
@@ -545,7 +545,7 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 
 	tx, err := d.db.Beginx()
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToBeginTx, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToBeginTx, err)
 	}
 
 	defer rollback(tx)
@@ -560,7 +560,7 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 
 	_, err = tx.ExecContext(ctx, updateTaskQuery, updateTaskArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteUpdate, err)
 	}
 
 	selectUpdatedTaskQuery, selectUpdatedTaskArgs := d.getQueryWithTableName(selectUpdatedTaskSQLTemplate, map[string]any{
@@ -570,12 +570,12 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 	err = tx.QueryRowxContext(ctx, selectUpdatedTaskQuery, selectUpdatedTaskArgs...).
 		StructScan(mySQLTask)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteSelect, err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToCommitTx, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToCommitTx, err)
 	}
 
 	return mySQLTask.toTask(), err
@@ -592,7 +592,7 @@ func (d *Repository) CountTasks(ctx context.Context, taskStatuses []tasq.TaskSta
 
 	err := d.db.GetContext(ctx, &count, selectTaskCountQuery, selectTaskCountArgs...)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+		return 0, fmt.Errorf("%w: %w", errFailedToExecuteSelect, err)
 	}
 
 	return count, nil
@@ -609,7 +609,7 @@ func (d *Repository) ScanTasks(ctx context.Context, taskStatuses []tasq.TaskStat
 
 	err := d.db.SelectContext(ctx, &scannedTasks, selectScannedTasksQuery, selectScannedTasksArgs...)
 	if err != nil {
-		return []*tasq.Task{}, fmt.Errorf("%s: %w", errFailedToExecuteSelect, err)
+		return []*tasq.Task{}, fmt.Errorf("%w: %w", errFailedToExecuteSelect, err)
 	}
 
 	return mySQLTasksToTasks(scannedTasks), nil
@@ -623,12 +623,12 @@ func (d *Repository) PurgeTasks(ctx context.Context, taskStatuses []tasq.TaskSta
 
 	result, err := d.db.ExecContext(ctx, selectPurgedTasksQuery, selectPurgedTasksArgs...)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", errFailedToExecuteDelete, err)
+		return 0, fmt.Errorf("%w: %w", errFailedToExecuteDelete, err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", errFailedGetRowsAffected, err)
+		return 0, fmt.Errorf("%w: %w", errFailedGetRowsAffected, err)
 	}
 
 	return rowsAffected, nil
@@ -762,7 +762,7 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 
 	_, err := d.db.ExecContext(ctx, query)
 	if err != nil {
-		return fmt.Errorf("%s: %w", errFailedToExecuteCreateTable, err)
+		return fmt.Errorf("%w: %w", errFailedToExecuteCreateTable, err)
 	}
 
 	return nil

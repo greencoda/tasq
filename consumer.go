@@ -432,7 +432,7 @@ func (c *Consumer) pollForTasks(ctx context.Context) ([]*Task, error) {
 
 	tasks, err := c.client.repository.PollTasks(ctx, c.getKnownTaskTypes(), c.queues, c.visibilityTimeout, pollOrdering, c.getPollQuantity())
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrCouldNotPollTasks, err)
+		return nil, fmt.Errorf("%w: %w", ErrCouldNotPollTasks, err)
 	}
 
 	return tasks, nil
@@ -441,7 +441,7 @@ func (c *Consumer) pollForTasks(ctx context.Context) ([]*Task, error) {
 func (c *Consumer) pingActiveTasks(ctx context.Context) error {
 	_, err := c.client.repository.PingTasks(ctx, c.getActiveTaskIDs(), c.visibilityTimeout)
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrCouldNotPingTasks, err)
+		return fmt.Errorf("%w: %w", ErrCouldNotPingTasks, err)
 	}
 
 	return nil

@@ -221,7 +221,7 @@ func (d *Repository) RegisterStart(ctx context.Context, task *tasq.Task) (*tasq.
 		}).
 		StructScan(updatedTask)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteUpdate, err)
 	}
 
 	return updatedTask.toTask(), nil
@@ -248,7 +248,7 @@ func (d *Repository) RegisterError(ctx context.Context, task *tasq.Task, errTask
 		}).
 		StructScan(updatedTask)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteUpdate, err)
 	}
 
 	return updatedTask.toTask(), nil
@@ -279,7 +279,7 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finish
 		}).
 		StructScan(updatedTask)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteUpdate, err)
 	}
 
 	return updatedTask.toTask(), nil
@@ -313,7 +313,7 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 		}).
 		StructScan(postgresTask)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteInsert, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteInsert, err)
 	}
 
 	return postgresTask.toTask(), nil
@@ -338,7 +338,7 @@ func (d *Repository) DeleteTask(ctx context.Context, task *tasq.Task, safeDelete
 
 	_, err := d.prepareWithTableName(sqlTemplate).ExecContext(ctx, parameters)
 	if err != nil {
-		return fmt.Errorf("%s: %w", errFailedToExecuteDelete, err)
+		return fmt.Errorf("%w: %w", errFailedToExecuteDelete, err)
 	}
 
 	return nil
@@ -363,7 +363,7 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 		}).
 		StructScan(updatedTask)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", errFailedToExecuteUpdate, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteUpdate, err)
 	}
 
 	return updatedTask.toTask(), err
@@ -522,7 +522,7 @@ func (d *Repository) migrateStatus(ctx context.Context) error {
 
 	_, err := d.db.ExecContext(ctx, query)
 	if err != nil {
-		return fmt.Errorf("%s: %w", errFailedToExecuteCreateType, err)
+		return fmt.Errorf("%w: %w", errFailedToExecuteCreateType, err)
 	}
 
 	return nil
@@ -552,7 +552,7 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 
 	_, err := d.db.ExecContext(ctx, query)
 	if err != nil {
-		return fmt.Errorf("%s: %w", errFailedToExecuteCreateTable, err)
+		return fmt.Errorf("%w: %w", errFailedToExecuteCreateTable, err)
 	}
 
 	return nil

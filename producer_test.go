@@ -6,14 +6,13 @@ import (
 
 	"github.com/greencoda/tasq"
 	"github.com/greencoda/tasq/mocks"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
 type ProducterTestSuite struct {
 	suite.Suite
+
 	mockRepository *mocks.IRepository
 	tasqClient     *tasq.Client
 	tasqProducer   *tasq.Producer
@@ -30,20 +29,20 @@ func (s *ProducterTestSuite) SetupTest() {
 	s.mockRepository = mocks.NewIRepository(s.T())
 
 	s.tasqClient = tasq.NewClient(s.mockRepository)
-	require.NotNil(s.T(), s.tasqClient)
+	s.Require().NotNil(s.tasqClient)
 
 	s.tasqProducer = s.tasqClient.NewProducer()
-	require.NotNil(s.T(), s.tasqProducer)
+	s.Require().NotNil(s.tasqProducer)
 
 	testArgs := "testData"
 	testTask, err := tasq.NewTask("testTask", testArgs, "testQueue", 100, 5)
-	require.Nil(s.T(), err)
+	s.Require().NoError(err)
 
 	s.testTask = testTask
 }
 
 func (s *ProducterTestSuite) TestNewProducer() {
-	assert.NotNil(s.T(), s.tasqProducer)
+	s.NotNil(s.tasqProducer)
 }
 
 func (s *ProducterTestSuite) TestSubmitSuccessful() {
@@ -53,9 +52,9 @@ func (s *ProducterTestSuite) TestSubmitSuccessful() {
 
 	task, err := s.tasqProducer.Submit(ctx, s.testTask.Type, s.testTask.Args, s.testTask.Queue, s.testTask.Priority, s.testTask.MaxReceives)
 
-	assert.NotNil(s.T(), task)
-	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")))
-	assert.Nil(s.T(), err)
+	s.NotNil(task)
+	s.True(s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")))
+	s.NoError(err)
 }
 
 func (s *ProducterTestSuite) TestSubmitUnsuccessful() {
@@ -69,9 +68,9 @@ func (s *ProducterTestSuite) TestSubmitUnsuccessful() {
 
 	task, err := s.tasqProducer.Submit(ctx, testTask.Type, testArgs, testTask.Queue, testTask.Priority, testTask.MaxReceives)
 
-	assert.Nil(s.T(), task)
-	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")))
-	assert.NotNil(s.T(), err)
+	s.Nil(task)
+	s.True(s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")))
+	s.Error(err)
 }
 
 func (s *ProducterTestSuite) TestSubmitInvalidpriority() {
@@ -79,8 +78,8 @@ func (s *ProducterTestSuite) TestSubmitInvalidpriority() {
 
 	task, err := s.tasqProducer.Submit(ctx, "testData", nil, "testQueue", 100, 5)
 
-	assert.Nil(s.T(), task)
-	assert.NotNil(s.T(), err)
+	s.Nil(task)
+	s.Error(err)
 }
 
 func (s *ProducterTestSuite) TestSubmitTask() {
@@ -89,12 +88,12 @@ func (s *ProducterTestSuite) TestSubmitTask() {
 	s.mockRepository.On("SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")).Return(s.testTask, nil)
 
 	task, err := tasq.NewTask(s.testTask.Type, s.testTask.Args, s.testTask.Queue, s.testTask.Priority, s.testTask.MaxReceives)
-	require.NotNil(s.T(), task)
-	require.Nil(s.T(), err)
+	s.Require().NotNil(task)
+	s.Require().NoError(err)
 
 	submittedTask, err := s.tasqProducer.SubmitTask(ctx, task)
 
-	assert.NotNil(s.T(), submittedTask)
-	assert.True(s.T(), s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")))
-	assert.Nil(s.T(), err)
+	s.NotNil(submittedTask)
+	s.True(s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")))
+	s.NoError(err)
 }

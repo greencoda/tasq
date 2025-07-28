@@ -16,13 +16,13 @@ jobs:
     - name: Setup Go
       uses: actions/setup-go@v3
       with:
-        go-version: 1.19.x
+        go-version: 1.22.x
         check-latest: true
 
     - name: Lint
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v8
       with:
-        version: v1.50.1
+        version: v2.3.0
   test:
     runs-on: ubuntu-latest
     steps:
@@ -32,11 +32,25 @@ jobs:
     - name: Setup Go
       uses: actions/setup-go@v3
       with:
-        go-version: 1.19.x
+        go-version: 1.22.x
         check-latest: true
         
     - name: Setup Dependencies
       run: make deps && git diff-index --quiet HEAD || { >&2 echo "Stale go.{mod,sum} detected. This can be fixed with 'make deps'."; exit 1; }
 
     - name: Run Test
-      run: make test
+      run: go test -v -coverprofile=coverage.out $(go list ./... | grep -v ./mocks)
+
+    - name: Copy coverage.out file to temp
+      run: cp coverage.out $RUNNER_TEMP
+
+    - name: Update coverage report
+      uses: ncruces/go-coverage-report@v0
+      with:
+        coverage-file: ${{ runner.temp }}/coverage.out
+        report: true
+        chart: true
+        amend: true
+      if: |
+        github.event_name == 'push'
+      continue-on-error: true

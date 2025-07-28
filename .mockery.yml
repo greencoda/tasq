@@ -1,1 +1,9 @@
-name: "IRepository"
+packages:
+  github.com/greencoda/tasq:
+    config:
+      pkgname: 'mocks'
+      filename: "{{.InterfaceName}}.go"
+      structname: "{{.InterfaceName}}"
+      dir: "./mocks"
+    interfaces:
+      IRepository:

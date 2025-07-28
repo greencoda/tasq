@@ -12,9 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq"
 	"github.com/greencoda/tasq/mocks"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -25,6 +23,7 @@ var (
 
 type ConsumerTestSuite struct {
 	suite.Suite
+
 	mockRepository *mocks.IRepository
 	mockClock      *clock.Mock
 	tasqClient     *tasq.Client
@@ -44,26 +43,26 @@ func (s *ConsumerTestSuite) SetupTest() {
 	s.mockClock.Set(time.Now())
 
 	s.tasqClient = tasq.NewClient(s.mockRepository)
-	require.NotNil(s.T(), s.tasqClient)
+	s.Require().NotNil(s.tasqClient)
 
 	s.tasqConsumer = s.tasqClient.NewConsumer().WithLogger(log.New(&s.logBuffer, "", 0)).SetClock(s.mockClock)
-	require.NotNil(s.T(), s.tasqConsumer)
+	s.Require().NotNil(s.tasqConsumer)
 
 	s.logBuffer.Reset()
 }
 
 func (s *ConsumerTestSuite) TestNewConsumer() {
-	assert.NotNil(s.T(), s.tasqConsumer.
+	s.NotNil(s.tasqConsumer.
 		WithAutoDeleteOnSuccess(true).
 		WithChannelSize(10).
 		WithMaxActiveTasks(10).
-		WithPollInterval(10*time.Second).
+		WithPollInterval(10 * time.Second).
 		WithPollLimit(10).
 		WithPollStrategy(tasq.PollStrategyByCreatedAt).
 		WithQueues("testQueue").
-		WithVisibilityTimeout(30*time.Second))
+		WithVisibilityTimeout(30 * time.Second))
 
-	assert.Empty(s.T(), s.logBuffer.String())
+	s.Empty(s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestLearnAndForget() {
@@ -71,29 +70,29 @@ func (s *ConsumerTestSuite) TestLearnAndForget() {
 	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Learning an already learned task execution method returns an error
 	err = s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
-	assert.NotNil(s.T(), err)
+	s.Error(err)
 
 	// Learning an already learned task execution method with override being true is successful
 	err = s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, true)
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Forgetting an already learned task execution method is successful
 	err = s.tasqConsumer.Forget("testTask")
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Forgetting an unknown execution method is successful
 	err = s.tasqConsumer.Forget("anotherTestTask")
-	assert.NotNil(s.T(), err)
+	s.Error(err)
 
-	assert.Empty(s.T(), s.logBuffer.String())
+	s.Empty(s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestStartWithInvalidVisibilityTimeoutParam() {
@@ -105,9 +104,9 @@ func (s *ConsumerTestSuite) TestStartWithInvalidVisibilityTimeoutParam() {
 
 	// Start up the consumer
 	err := s.tasqConsumer.Start(ctx)
-	assert.NotNil(s.T(), err)
+	s.Error(err)
 
-	assert.Empty(s.T(), s.logBuffer.String())
+	s.Empty(s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestStartStopTwice() {
@@ -119,7 +118,7 @@ func (s *ConsumerTestSuite) TestStartStopTwice() {
 	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Getting tasks
 	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Return([]*tasq.Task{}, nil)
@@ -132,26 +131,26 @@ func (s *ConsumerTestSuite) TestStartStopTwice() {
 
 	// Start up the consumer
 	err = s.tasqConsumer.Start(ctx)
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Start up the consumer again
 	err = s.tasqConsumer.Start(ctx)
-	assert.NotNil(s.T(), err)
+	s.Error(err)
 
 	// Stop the consumer
 	err = s.tasqConsumer.Stop()
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	s.mockClock.Add(5 * time.Second)
 
 	// Stop the consumer again
 	err = s.tasqConsumer.Stop()
-	assert.NotNil(s.T(), err)
+	s.Error(err)
 
 	// Wait for goroutine to actually return and output log message
 	s.tasqConsumer.GetWaitGroup().Wait()
 
-	assert.Equal(s.T(), "error polling for tasks: could not poll tasks: repository error\nprocessing stopped\n", s.logBuffer.String())
+	s.Equal("error polling for tasks: could not poll tasks: repository error\nprocessing stopped\n", s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestConsumption() {
@@ -166,22 +165,22 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	)
 
 	successTestTask, err := tasq.NewTask("testTask", successTestArgs, "testQueue", 100, 5)
-	require.NotNil(s.T(), successTestTask)
-	require.Nil(s.T(), err)
+	s.Require().NotNil(successTestTask)
+	s.Require().NoError(err)
 
 	failTestTask, err := tasq.NewTask("testTask", failTestArgs, "testQueue", 100, 5)
-	require.NotNil(s.T(), failTestTask)
-	require.Nil(s.T(), err)
+	s.Require().NotNil(failTestTask)
+	s.Require().NoError(err)
 
 	failNoRequeueTestTask, err := tasq.NewTask("testTask", failTestArgs, "testQueue", 100, 1)
-	require.NotNil(s.T(), failNoRequeueTestTask)
-	require.Nil(s.T(), err)
+	s.Require().NotNil(failNoRequeueTestTask)
+	s.Require().NoError(err)
 
 	err = s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		var args string
 
 		err := task.UnmarshalArgs(&args)
-		require.Nil(s.T(), err)
+		s.Require().NoError(err)
 
 		if args == successTestArgs {
 			return nil
@@ -189,7 +188,7 @@ func (s *ConsumerTestSuite) TestConsumption() {
 
 		return errTaskFail
 	}, false)
-	require.Nil(s.T(), err)
+	s.Require().NoError(err)
 
 	// Increment receive counts
 	for _, task := range []*tasq.Task{
@@ -215,40 +214,40 @@ func (s *ConsumerTestSuite) TestConsumption() {
 
 	// Start up the consumer
 	err = s.tasqConsumer.Start(ctx)
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Read the successful job from the consumer channel
 	successJob := <-s.tasqConsumer.Channel()
-	assert.NotNil(s.T(), successJob)
+	s.NotNil(successJob)
 
 	// First try - registering task start fails
 	s.mockRepository.On("RegisterStart", ctx, successTestTask).Once().Return(nil, errRepository)
-	assert.Panics(s.T(), func() {
+	s.Panics(func() {
 		(*successJob)()
 	})
 
 	// Second try - registering task success fails
 	s.mockRepository.On("RegisterStart", ctx, successTestTask).Once().Return(successTestTask, nil)
 	s.mockRepository.On("RegisterFinish", ctx, successTestTask, tasq.StatusSuccessful).Once().Return(nil, errRepository)
-	assert.Panics(s.T(), func() {
+	s.Panics(func() {
 		(*successJob)()
 	})
 
 	// Third try - repository succeeds
 	s.mockRepository.On("RegisterStart", ctx, successTestTask).Once().Return(successTestTask, nil)
 	s.mockRepository.On("RegisterFinish", ctx, successTestTask, tasq.StatusSuccessful).Once().Return(successTestTask, nil)
-	assert.NotPanics(s.T(), func() {
+	s.NotPanics(func() {
 		(*successJob)()
 	})
 
 	// Read the failing job from the consumer channel
 	failJob := <-s.tasqConsumer.Channel()
-	assert.NotNil(s.T(), failJob)
+	s.NotNil(failJob)
 
 	// First try - registering task error fails
 	s.mockRepository.On("RegisterStart", ctx, failTestTask).Once().Return(failTestTask, nil)
 	s.mockRepository.On("RegisterError", ctx, failTestTask, errTaskFail).Once().Return(nil, errRepository)
-	assert.Panics(s.T(), func() {
+	s.Panics(func() {
 		(*failJob)()
 	})
 
@@ -256,7 +255,7 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	s.mockRepository.On("RegisterStart", ctx, failTestTask).Once().Return(failTestTask, nil)
 	s.mockRepository.On("RegisterError", ctx, failTestTask, errTaskFail).Once().Return(failTestTask, nil)
 	s.mockRepository.On("RequeueTask", ctx, failTestTask).Once().Return(nil, errRepository)
-	assert.Panics(s.T(), func() {
+	s.Panics(func() {
 		(*failJob)()
 	})
 
@@ -264,18 +263,18 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	s.mockRepository.On("RegisterStart", ctx, failTestTask).Once().Return(failTestTask, nil)
 	s.mockRepository.On("RegisterError", ctx, failTestTask, errTaskFail).Once().Return(failTestTask, nil)
 	s.mockRepository.On("RequeueTask", ctx, failTestTask).Once().Return(failTestTask, nil)
-	assert.NotPanics(s.T(), func() {
+	s.NotPanics(func() {
 		(*failJob)()
 	})
 
 	// Read the failing job that shouldn't be requeued from the consumer channel
 	failNoRequeueJob := <-s.tasqConsumer.Channel()
-	assert.NotNil(s.T(), failNoRequeueJob)
+	s.NotNil(failNoRequeueJob)
 
 	// First try - registering task failure fails
 	s.mockRepository.On("RegisterStart", ctx, failNoRequeueTestTask).Once().Return(failNoRequeueTestTask, nil)
 	s.mockRepository.On("RegisterError", ctx, failNoRequeueTestTask, errTaskFail).Once().Return(nil, errRepository)
-	assert.Panics(s.T(), func() {
+	s.Panics(func() {
 		(*failNoRequeueJob)()
 	})
 
@@ -283,7 +282,7 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	s.mockRepository.On("RegisterStart", ctx, failNoRequeueTestTask).Once().Return(failNoRequeueTestTask, nil)
 	s.mockRepository.On("RegisterError", ctx, failNoRequeueTestTask, errTaskFail).Once().Return(failNoRequeueTestTask, nil)
 	s.mockRepository.On("RegisterFinish", ctx, failNoRequeueTestTask, tasq.StatusFailed).Once().Return(nil, errRepository)
-	assert.Panics(s.T(), func() {
+	s.Panics(func() {
 		(*failNoRequeueJob)()
 	})
 
@@ -291,13 +290,13 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	s.mockRepository.On("RegisterStart", ctx, failNoRequeueTestTask).Once().Return(failNoRequeueTestTask, nil)
 	s.mockRepository.On("RegisterError", ctx, failNoRequeueTestTask, errTaskFail).Once().Return(failNoRequeueTestTask, nil)
 	s.mockRepository.On("RegisterFinish", ctx, failNoRequeueTestTask, tasq.StatusFailed).Once().Return(failNoRequeueTestTask, nil)
-	assert.NotPanics(s.T(), func() {
+	s.NotPanics(func() {
 		(*failNoRequeueJob)()
 	})
 
 	// Stop the consumer
 	err = s.tasqConsumer.Stop()
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
@@ -307,7 +306,7 @@ func (s *ConsumerTestSuite) TestConsumption() {
 	// Wait for goroutine to actually return and output log message
 	s.tasqConsumer.GetWaitGroup().Wait()
 
-	assert.Equal(s.T(), "error pinging active tasks: could not ping tasks: repository error\nprocessing stopped\n", s.logBuffer.String())
+	s.Equal("error pinging active tasks: could not ping tasks: repository error\nprocessing stopped\n", s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
@@ -318,13 +317,13 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 		WithAutoDeleteOnSuccess(true)
 
 	successTestTask, err := tasq.NewTask("testTask", true, "testQueue", 100, 5)
-	require.NotNil(s.T(), successTestTask)
-	require.Nil(s.T(), err)
+	s.Require().NotNil(successTestTask)
+	s.Require().NoError(err)
 
 	err = s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
-	require.Nil(s.T(), err)
+	s.Require().NoError(err)
 
 	successTestTask.ReceiveCount++
 
@@ -336,29 +335,29 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 
 	// Start up the consumer
 	err = s.tasqConsumer.Start(ctx)
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Read the successful job from the consumer channel
 	successJob := <-s.tasqConsumer.Channel()
-	assert.NotNil(s.T(), successJob)
+	s.NotNil(successJob)
 
 	// First try - deleting task fails
 	s.mockRepository.On("RegisterStart", ctx, successTestTask).Once().Return(successTestTask, nil)
 	s.mockRepository.On("DeleteTask", ctx, successTestTask, false).Once().Return(errRepository)
-	assert.Panics(s.T(), func() {
+	s.Panics(func() {
 		(*successJob)()
 	})
 
 	// Second try - deleting task succeeds
 	s.mockRepository.On("RegisterStart", ctx, successTestTask).Once().Return(successTestTask, nil)
 	s.mockRepository.On("DeleteTask", ctx, successTestTask, false).Once().Return(nil)
-	assert.NotPanics(s.T(), func() {
+	s.NotPanics(func() {
 		(*successJob)()
 	})
 
 	// Stop the consumer
 	err = s.tasqConsumer.Stop()
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
@@ -368,7 +367,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithAutoDeleteOnSuccess() {
 	// Wait for goroutine to actually return and output log message
 	s.tasqConsumer.GetWaitGroup().Wait()
 
-	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
+	s.Equal("processing stopped\n", s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
@@ -379,13 +378,13 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 		WithPollStrategy(tasq.PollStrategyByPriority)
 
 	successTestTask, err := tasq.NewTask("testTask", true, "testQueue", 100, 5)
-	require.NotNil(s.T(), successTestTask)
-	require.Nil(s.T(), err)
+	s.Require().NotNil(successTestTask)
+	s.Require().NoError(err)
 
 	err = s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
-	require.Nil(s.T(), err)
+	s.Require().NoError(err)
 
 	successTestTask.ReceiveCount++
 
@@ -397,22 +396,22 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 
 	// Start up the consumer
 	err = s.tasqConsumer.Start(ctx)
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Read the successful job from the consumer channel
 	successJob := <-s.tasqConsumer.Channel()
-	assert.NotNil(s.T(), successJob)
+	s.NotNil(successJob)
 
 	// First try - repository succeeds
 	s.mockRepository.On("RegisterStart", ctx, successTestTask).Once().Return(successTestTask, nil)
 	s.mockRepository.On("RegisterFinish", ctx, successTestTask, tasq.StatusSuccessful).Once().Return(successTestTask, nil)
-	assert.NotPanics(s.T(), func() {
+	s.NotPanics(func() {
 		(*successJob)()
 	})
 
 	// Stop the consumer
 	err = s.tasqConsumer.Stop()
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
@@ -422,7 +421,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithPollStrategyByPriority() {
 	// Wait for goroutine to actually return and output log message
 	s.tasqConsumer.GetWaitGroup().Wait()
 
-	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
+	s.Equal("processing stopped\n", s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestConsumptionWithUnknownPollStrategy() {
@@ -437,11 +436,11 @@ func (s *ConsumerTestSuite) TestConsumptionWithUnknownPollStrategy() {
 
 	// Start up the consumer
 	err := s.tasqConsumer.Start(ctx)
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Stop the consumer
 	err = s.tasqConsumer.Stop()
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
@@ -451,7 +450,7 @@ func (s *ConsumerTestSuite) TestConsumptionWithUnknownPollStrategy() {
 	// Wait for goroutine to actually return and output log message
 	s.tasqConsumer.GetWaitGroup().Wait()
 
-	assert.Equal(s.T(), "error polling for tasks: unknown poll strategy: pollByMagic\nprocessing stopped\n", s.logBuffer.String())
+	s.Equal("error polling for tasks: unknown poll strategy: pollByMagic\nprocessing stopped\n", s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
@@ -461,13 +460,13 @@ func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 		WithQueues("testQueue")
 
 	anotherTestTask, err := tasq.NewTask("anotherTestTask", true, "testQueue", 100, 5)
-	require.NotNil(s.T(), anotherTestTask)
-	require.Nil(s.T(), err)
+	s.Require().NotNil(anotherTestTask)
+	s.Require().NoError(err)
 
 	err = s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
-	require.Nil(s.T(), err)
+	s.Require().NoError(err)
 
 	// Getting tasks
 	s.mockRepository.On("PingTasks", ctx, []uuid.UUID{}, 15*time.Second).Twice().Return([]*tasq.Task{}, nil)
@@ -477,13 +476,13 @@ func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 
 	// Start up the consumer
 	err = s.tasqConsumer.Start(ctx)
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	s.mockRepository.On("RegisterFinish", ctx, anotherTestTask, tasq.StatusFailed).Return(anotherTestTask, nil)
 
 	// Stop the consumer
 	err = s.tasqConsumer.Stop()
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Wait until channel is closed
 	<-s.tasqConsumer.Channel()
@@ -493,7 +492,7 @@ func (s *ConsumerTestSuite) TestConsumptionOfUnknownTaskType() {
 	// Wait for goroutine to actually return and output log message
 	s.tasqConsumer.GetWaitGroup().Wait()
 
-	assert.Equal(s.T(), "error activating tasks: a number of tasks could not be activated: 1\nprocessing stopped\n", s.logBuffer.String())
+	s.Equal("error activating tasks: a number of tasks could not be activated: 1\nprocessing stopped\n", s.logBuffer.String())
 }
 
 func (s *ConsumerTestSuite) TestLoopingConsumption() {
@@ -540,22 +539,22 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 	err := s.tasqConsumer.Learn("testTask", func(task *tasq.Task) error {
 		return nil
 	}, false)
-	require.Nil(s.T(), err)
+	s.Require().NoError(err)
 
 	// Respond to pings
 	pingCall := s.mockRepository.On("PingTasks", ctx, mock.AnythingOfType("[]uuid.UUID"), 15*time.Second)
 	pingCall.Run(func(args mock.Arguments) {
 		inputTestIDs, ok := args[1].([]uuid.UUID)
-		require.True(s.T(), ok)
+		s.Require().True(ok)
 
 		taskIDs, ok := args[1].([]uuid.UUID)
-		require.True(s.T(), ok)
+		s.Require().True(ok)
 
 		returnTasks := make([]*tasq.Task, 0, len(inputTestIDs))
 
 		for _, taskID := range taskIDs {
 			returnTask, ok := testTasks[taskID]
-			require.True(s.T(), ok)
+			s.Require().True(ok)
 
 			returnTasks = append(returnTasks, returnTask)
 		}
@@ -578,13 +577,13 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 
 	// Start up the consumer
 	err = s.tasqConsumer.Start(ctx)
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	s.mockClock.Add(5 * time.Second)
 
 	// Stop the consumer
 	err = s.tasqConsumer.Stop()
-	assert.Nil(s.T(), err)
+	s.NoError(err)
 
 	// Mock job handling
 	s.mockRepository.On("RegisterStart", ctx, testTasks[testTaskID1]).Once().
@@ -601,7 +600,7 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 	for job := range s.tasqConsumer.Channel() {
 		currentJob := job
 
-		assert.NotPanics(s.T(), func() {
+		s.NotPanics(func() {
 			(*currentJob)()
 		})
 	}
@@ -612,5 +611,5 @@ func (s *ConsumerTestSuite) TestLoopingConsumption() {
 	// Wait for goroutine to actually return and output log message
 	s.tasqConsumer.GetWaitGroup().Wait()
 
-	assert.Equal(s.T(), "processing stopped\n", s.logBuffer.String())
+	s.Equal("processing stopped\n", s.logBuffer.String())
 }

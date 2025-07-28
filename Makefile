@@ -7,10 +7,13 @@ deps:
 	go mod tidy
 	go mod vendor
 
+install-tools:
+	go install github.com/vektra/mockery/v3@v3.5.1
+
 lint: deps
 	golangci-lint run -v
 
-mocks:
+mock:
 	rm -rf mocks/*
 	mockery
 
