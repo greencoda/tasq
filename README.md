@@ -38,8 +38,8 @@ go run _examples/<example_repo_name>/main.go
 
 [godoc-badge]: https://pkg.go.dev/badge/github.com/greencoda/tasq
 [godoc-url]: https://pkg.go.dev/github.com/greencoda/tasq
-[actions-badge]: https://github.com/greencoda/tasq/actions/workflows/test.yml/badge.svg
-[actions-url]: https://github.com/greencoda/tasq/actions/workflows/test.yml
+[actions-badge]: https://github.com/greencoda/tasq/actions/workflows/main.yml/badge.svg
+[actions-url]: https://github.com/greencoda/tasq/actions/workflows/main.yml
 [goversion-badge]: https://img.shields.io/badge/Go-1.22-%2300ADD8?logo=go
 [goversion-url]: https://golang.org/doc/go1.22
 [goreportcard-badge]: https://goreportcard.com/badge/github.com/greencoda/tasq
