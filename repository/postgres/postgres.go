@@ -19,6 +19,11 @@ import (
 
 const driverName = "postgres"
 
+const (
+	defaultTableName            = "tasks"
+	defaultStatusTypeNamePrefix = "tasq"
+)
+
 var (
 	errUnexpectedDataSourceType   = errors.New("unexpected dataSource type")
 	errFailedToExecuteUpdate      = errors.New("failed to execute update query")
@@ -36,35 +41,47 @@ type Repository struct {
 }
 
 // NewRepository creates a new PostgreSQL Repository instance.
-func NewRepository(dataSource any, prefix string) (*Repository, error) {
+func NewRepository(dataSource any, options ...Option) (*Repository, error) {
 	switch d := dataSource.(type) {
 	case string:
-		return newRepositoryFromDSN(d, prefix)
+		return newRepositoryFromDSN(d, options)
 	case *sql.DB:
-		return newRepositoryFromDB(d, prefix)
+		return newRepositoryFromDB(d, options)
 	}
 
 	return nil, fmt.Errorf("%w: %T", errUnexpectedDataSourceType, dataSource)
 }
 
-func newRepositoryFromDSN(dsn string, prefix string) (*Repository, error) {
+func newRepositoryFromDSN(dsn string, options []Option) (*Repository, error) {
 	dbx, _ := sqlx.Open(driverName, dsn)
 
-	return &Repository{
+	repository := &Repository{
 		db:             dbx,
-		statusTypeName: statusTypeName(prefix),
-		tableName:      tableName(prefix),
-	}, nil
+		statusTypeName: statusTypeName(defaultStatusTypeNamePrefix),
+		tableName:      defaultTableName,
+	}
+
+	for _, option := range options {
+		repository = option(repository)(repository)
+	}
+
+	return repository, nil
 }
 
-func newRepositoryFromDB(db *sql.DB, prefix string) (*Repository, error) {
+func newRepositoryFromDB(db *sql.DB, options []Option) (*Repository, error) {
 	dbx := sqlx.NewDb(db, driverName)
 
-	return &Repository{
+	repository := &Repository{
 		db:             dbx,
-		statusTypeName: statusTypeName(prefix),
-		tableName:      tableName(prefix),
-	}, nil
+		statusTypeName: statusTypeName(defaultStatusTypeNamePrefix),
+		tableName:      defaultTableName,
+	}
+
+	for _, option := range options {
+		repository = option(repository)(repository)
+	}
+
+	return repository, nil
 }
 
 // Migrate prepares the database with the task status type
@@ -615,16 +632,6 @@ func statusTypeName(prefix string) string {
 	}
 
 	return statusTypeName
-}
-
-func tableName(prefix string) string {
-	const tableName = "tasks"
-
-	if len(prefix) > 0 {
-		return prefix + "_" + tableName
-	}
-
-	return tableName
 }
 
 func interpolateSQL(sql string, params map[string]any) string {

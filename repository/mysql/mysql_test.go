@@ -890,3 +890,14 @@ func (s *MySQLTestSuite) TestInterpolateSQL() {
 		s.Empty(unexecutableTemplateSQL)
 	})
 }
+
+func (s *MySQLTestSuite) TestWithTableName() {
+	// Test WithTableName option
+	option := mysql.WithTableName("custom_table")
+	s.NotNil(option)
+
+	// Create a dummy repository to test the option
+	repo := &mysql.Repository{}
+	modifiedRepo := option(repo)(repo)
+	s.NotNil(modifiedRepo)
+}

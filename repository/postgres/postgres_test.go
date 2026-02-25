@@ -72,29 +72,29 @@ func (s *PostgresTestSuite) SetupTest() {
 	s.db, s.sqlMock, err = sqlmock.New()
 	s.Require().NoError(err)
 
-	s.mockedRepository, err = postgres.NewRepository(s.db, "test")
+	s.mockedRepository, err = postgres.NewRepository(s.db, postgres.WithTypePrefix("test"))
 	s.Require().NotNil(s.mockedRepository)
 	s.Require().NoError(err)
 }
 
 func (s *PostgresTestSuite) TestNewRepository() {
 	// providing the datasource as *sql.DB
-	repository, err := postgres.NewRepository(s.db, "test")
+	repository, err := postgres.NewRepository(s.db, postgres.WithTypePrefix("test"))
 	s.NotNil(repository)
 	s.NoError(err)
 
 	// providing the datasource as *sql.DB with no prefix
-	repository, err = postgres.NewRepository(s.db, "")
+	repository, err = postgres.NewRepository(s.db)
 	s.NotNil(repository)
 	s.NoError(err)
 
 	// providing the datasource as dsn string
-	repository, err = postgres.NewRepository("testDSN", "test")
+	repository, err = postgres.NewRepository("testDSN", postgres.WithTypePrefix("test"))
 	s.NotNil(repository)
 	s.NoError(err)
 
 	// providing the datasource as unknown datasource type
-	repository, err = postgres.NewRepository(false, "test")
+	repository, err = postgres.NewRepository(false)
 	s.Nil(repository)
 	s.Error(err)
 }
@@ -512,4 +512,36 @@ func (s *PostgresTestSuite) TestInterpolateSQL() {
 		unexecutableTemplateSQL := postgres.InterpolateSQL(`SELECT * FROM {{if .tableName eq 1}} {{end}} {{.tableName}}`, params)
 		s.Empty(unexecutableTemplateSQL)
 	})
+}
+
+func (s *PostgresTestSuite) TestWithTableName() {
+	// Test WithTableName option
+	repository, err := postgres.NewRepository(s.db, postgres.WithTableName("custom_table"))
+	s.NotNil(repository)
+	s.NoError(err)
+
+	// Test WithTableName with empty string
+	repository, err = postgres.NewRepository(s.db, postgres.WithTableName(""))
+	s.NotNil(repository)
+	s.NoError(err)
+
+	// Test WithTableName and WithTypePrefix together
+	repository, err = postgres.NewRepository(s.db, postgres.WithTableName("my_tasks"), postgres.WithTypePrefix("custom"))
+	s.NotNil(repository)
+	s.NoError(err)
+
+	// Test WithTypePrefix with empty string (should use default table name)
+	repository, err = postgres.NewRepository(s.db, postgres.WithTypePrefix(""))
+	s.NotNil(repository)
+	s.NoError(err)
+}
+
+func (s *PostgresTestSuite) TestStatusTypeName() {
+	// Test StatusTypeName with non-empty prefix
+	typeName := postgres.StatusTypeName("test")
+	s.Equal("test_task_status", typeName)
+
+	// Test StatusTypeName with empty prefix
+	typeName = postgres.StatusTypeName("")
+	s.Equal("task_status", typeName)
 }

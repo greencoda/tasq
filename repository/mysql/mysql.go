@@ -20,6 +20,10 @@ import (
 
 const driverName = "mysql"
 
+const (
+	defaultTableName            = "tasks"
+)
+
 var (
 	errUnexpectedDataSourceType   = errors.New("unexpected dataSource type")
 	errFailedToBeginTx            = errors.New("failed to begin transaction")
@@ -56,18 +60,28 @@ func newRepositoryFromDSN(dsn string, prefix string) (*Repository, error) {
 		return nil, fmt.Errorf("failed to open DB from dsn: %w", err)
 	}
 
+	tableName := defaultTableName
+	if prefix != "" {
+		tableName = prefix + "_" + defaultTableName
+	}
+
 	return &Repository{
 		db:        dbx,
-		tableName: tableName(prefix),
+		tableName: tableName,
 	}, nil
 }
 
 func newRepositoryFromDB(db *sql.DB, prefix string) (*Repository, error) {
 	dbx := sqlx.NewDb(db, driverName)
 
+	tableName := defaultTableName
+	if prefix != "" {
+		tableName = prefix + "_" + defaultTableName
+	}
+
 	return &Repository{
 		db:        dbx,
-		tableName: tableName(prefix),
+		tableName: tableName,
 	}, nil
 }
 
@@ -798,16 +812,6 @@ func sliceToMySQLValueList[T any](slice []T) string {
 	}
 
 	return fmt.Sprintf(`"%s"`, strings.Join(stringSlice, `", "`))
-}
-
-func tableName(prefix string) string {
-	const tableName = "tasks"
-
-	if len(prefix) > 0 {
-		return prefix + "_" + tableName
-	}
-
-	return tableName
 }
 
 func interpolateSQL(sql string, params map[string]any) string {
