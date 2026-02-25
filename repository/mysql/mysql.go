@@ -21,7 +21,7 @@ import (
 const driverName = "mysql"
 
 const (
-	defaultTableName            = "tasks"
+	defaultTableName = "tasks"
 )
 
 var (
