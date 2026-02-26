@@ -27,9 +27,6 @@ func WithTypePrefix(prefix string) Option {
 	return func(r *Repository) func(r *Repository) *Repository {
 		return func(r *Repository) *Repository {
 			r.statusTypeName = statusTypeName(prefix)
-			if prefix != "" {
-				r.tableName = prefix + "_" + "tasks"
-			}
 			return r
 		}
 	}
