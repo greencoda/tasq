@@ -36,8 +36,9 @@ var (
 // Repository implements the menthods necessary for tasq to work in PostgreSQL.
 type Repository struct {
 	db             *sqlx.DB
-	statusTypeName string
+	schemaName     *string
 	tableName      string
+	statusTypeName string
 }
 
 // NewRepository creates a new PostgreSQL Repository instance.
@@ -57,8 +58,8 @@ func newRepositoryFromDSN(dsn string, options []Option) (*Repository, error) {
 
 	repository := &Repository{
 		db:             dbx,
-		statusTypeName: statusTypeName(defaultStatusTypeNamePrefix),
 		tableName:      defaultTableName,
+		statusTypeName: statusTypeName(defaultStatusTypeNamePrefix),
 	}
 
 	for _, option := range options {
@@ -87,17 +88,23 @@ func newRepositoryFromDB(db *sql.DB, options []Option) (*Repository, error) {
 // Migrate prepares the database with the task status type
 // and by adding the tasks table.
 func (d *Repository) Migrate(ctx context.Context) error {
-	err := d.migrateStatus(ctx)
+	tx, err := d.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
-	err = d.migrateTable(ctx)
-	if err != nil {
+	if err := d.migrateStatus(ctx, tx); err != nil {
+		return err
+	}
+	if err := d.migrateSchema(ctx, tx); err != nil {
+		return err
+	}
+	if err := d.migrateTable(ctx, tx); err != nil {
 		return err
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 // PingTasks pings a list of tasks by their ID
@@ -523,7 +530,15 @@ func (d *Repository) buildFilterConditions(taskStatuses []tasq.TaskStatus, taskT
 	return conditions, parameters
 }
 
-func (d *Repository) migrateStatus(ctx context.Context) error {
+func (d *Repository) tableNameWithSchema() string {
+	if d.schemaName != nil {
+		return fmt.Sprintf("%s.%s", *d.schemaName, d.tableName)
+	}
+
+	return d.tableName
+}
+
+func (d *Repository) migrateStatus(ctx context.Context, tx *sqlx.Tx) error {
 	var (
 		sqlTemplate = `DO $$
 			BEGIN
@@ -537,7 +552,7 @@ func (d *Repository) migrateStatus(ctx context.Context) error {
 		})
 	)
 
-	_, err := d.db.ExecContext(ctx, query)
+	_, err := tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errFailedToExecuteCreateType, err)
 	}
@@ -545,7 +560,26 @@ func (d *Repository) migrateStatus(ctx context.Context) error {
 	return nil
 }
 
-func (d *Repository) migrateTable(ctx context.Context) error {
+func (d *Repository) migrateSchema(ctx context.Context, tx *sqlx.Tx) error {
+	if d.schemaName == nil {
+		return nil
+	}
+
+	const sqlSchemaTemplate = `CREATE SCHEMA IF NOT EXISTS {{.schemaName}};`
+
+	query := interpolateSQL(sqlSchemaTemplate, map[string]any{
+		"schemaName": *d.schemaName,
+	})
+
+	_, err := tx.ExecContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errFailedToExecuteCreateTable, err)
+	}
+
+	return nil
+}
+
+func (d *Repository) migrateTable(ctx context.Context, tx *sqlx.Tx) error {
 	const sqlTemplate = `CREATE TABLE IF NOT EXISTS {{.tableName}} (
 			"id" UUID NOT NULL PRIMARY KEY,
 			"type" TEXT NOT NULL,
@@ -563,11 +597,11 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 		);`
 
 	query := interpolateSQL(sqlTemplate, map[string]any{
-		"tableName":      d.tableName,
+		"tableName":      d.tableNameWithSchema(),
 		"statusTypeName": d.statusTypeName,
 	})
 
-	_, err := d.db.ExecContext(ctx, query)
+	_, err := tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errFailedToExecuteCreateTable, err)
 	}
@@ -577,7 +611,7 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 
 func (d *Repository) prepareWithTableName(sqlTemplate string) *sqlx.NamedStmt {
 	query := interpolateSQL(sqlTemplate, map[string]any{
-		"tableName": d.tableName,
+		"tableName": d.tableNameWithSchema(),
 	})
 
 	namedStmt, err := d.db.PrepareNamed(query)
