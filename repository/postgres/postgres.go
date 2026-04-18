@@ -87,24 +87,36 @@ func newRepositoryFromDB(db *sql.DB, options []Option) (*Repository, error) {
 
 // Migrate prepares the database with the task status type
 // and by adding the tasks table.
-func (d *Repository) Migrate(ctx context.Context) error {
+func (d *Repository) Migrate(ctx context.Context) (err error) {
 	tx, err := d.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err == nil {
+			return
+		}
 
-	if err := d.migrateStatus(ctx, tx); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			err = fmt.Errorf("tx error: %v, rollback error: %v", err, rbErr)
+		}
+	}()
+
+	if err = d.migrateStatus(ctx, tx); err != nil {
 		return err
 	}
-	if err := d.migrateSchema(ctx, tx); err != nil {
+	if err = d.migrateSchema(ctx, tx); err != nil {
 		return err
 	}
-	if err := d.migrateTable(ctx, tx); err != nil {
+	if err = d.migrateTable(ctx, tx); err != nil {
 		return err
 	}
 
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // PingTasks pings a list of tasks by their ID

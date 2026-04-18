@@ -133,7 +133,27 @@ func (s *PostgresTestSuite) TestMigrate() {
 	err = s.mockedRepository.Migrate(ctx)
 	s.Error(err)
 
-	// Fourth try - migration succeeds
+	// Fourth try - rollback fails
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnError(errSQL)
+	s.sqlMock.ExpectRollback().WillReturnError(errSQL)
+
+	err = s.mockedRepository.Migrate(ctx)
+	s.Error(err)
+
+	// Fifth try - commit fails
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectCommit().WillReturnError(errSQL)
+
+	err = s.mockedRepository.Migrate(ctx)
+	s.Error(err)
+
+	// Sixth try - migration succeeds
 	s.sqlMock.ExpectBegin()
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
@@ -150,7 +170,7 @@ func (s *PostgresTestSuite) TestMigrateWithoutSchema() {
 
 	s.sqlMock.ExpectBegin()
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
-	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectCommit()
 
 	err = repository.Migrate(ctx)
