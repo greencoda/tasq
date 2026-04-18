@@ -72,14 +72,14 @@ func (s *MySQLTestSuite) SetupTest() {
 	s.db, s.sqlMock, err = sqlmock.New()
 	s.Require().NoError(err)
 
-	s.mockedRepository, err = mysql.NewRepository(s.db, "test")
+	s.mockedRepository, err = mysql.NewRepository(s.db, "test", mysql.WithTableName("test_tasks"), mysql.WithSchemaName("test_schema"))
 	s.Require().NotNil(s.mockedRepository)
 	s.Require().NoError(err)
 }
 
 func (s *MySQLTestSuite) TestNewRepository() {
 	// providing the datasource as *sql.DB
-	repository, err := mysql.NewRepository(s.db, "test")
+	repository, err := mysql.NewRepository(s.db, "test", mysql.WithTableName("test_tasks"), mysql.WithSchemaName("test_schema"))
 	s.NotNil(repository)
 	s.NoError(err)
 
@@ -89,32 +89,50 @@ func (s *MySQLTestSuite) TestNewRepository() {
 	s.NoError(err)
 
 	// providing the datasource as dsn string
-	repository, err = mysql.NewRepository("root:root@/test", "test")
+	repository, err = mysql.NewRepository("root:root@/test", "test", mysql.WithSchemaName("test_schema"))
 	s.NotNil(repository)
 	s.NoError(err)
 
 	// providing an invalid drivdsner as dsn string
-	repository, err = mysql.NewRepository("invalidDSN", "test")
+	repository, err = mysql.NewRepository("invalidDSN", "test", mysql.WithSchemaName("test_schema"))
 	s.Nil(repository)
 	s.Error(err)
 
 	// providing the datasource as unknown datasource type
-	repository, err = mysql.NewRepository(false, "test")
+	repository, err = mysql.NewRepository(false, "test", mysql.WithSchemaName("test_schema"))
 	s.Nil(repository)
 	s.Error(err)
 }
 
 func (s *MySQLTestSuite) TestMigrate() {
-	// First try - creating the tasks table fails
-	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_tasks`).WillReturnError(errSQL)
+	// First try - creating the schema fails
+	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnError(errSQL)
 
 	err := s.mockedRepository.Migrate(ctx)
 	s.Error(err)
 
-	// Second try - migration succeeds
-	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+	// Second try - creating the tasks table fails
+	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnError(errSQL)
 
 	err = s.mockedRepository.Migrate(ctx)
+	s.Error(err)
+
+	// Third try - migration succeeds
+	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+
+	err = s.mockedRepository.Migrate(ctx)
+	s.NoError(err)
+}
+
+func (s *MySQLTestSuite) TestMigrateWithoutSchema() {
+	repository, err := mysql.NewRepository(s.db, "test")
+	s.Require().NoError(err)
+
+	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+
+	err = repository.Migrate(ctx)
 	s.NoError(err)
 }
 
@@ -122,8 +140,8 @@ func (s *MySQLTestSuite) TestPingTasks() {
 	var (
 		taskUUID         = uuid.New()
 		taskUUIDBytes, _ = taskUUID.MarshalBinary()
-		updateMockRegexp = regexp.QuoteMeta(`UPDATE test_tasks SET visible_at = ? WHERE id IN (?);`)
-		selectMockRegexp = regexp.QuoteMeta(`SELECT * FROM test_tasks WHERE id IN (?);`)
+		updateMockRegexp = regexp.QuoteMeta(`UPDATE test_schema.test_tasks SET visible_at = ? WHERE id IN (?);`)
+		selectMockRegexp = regexp.QuoteMeta(`SELECT * FROM test_schema.test_tasks WHERE id IN (?);`)
 	)
 
 	// pinging empty tasklist
@@ -193,7 +211,7 @@ func (s *MySQLTestSuite) TestPollTasks() {
 		selectMockRegexp = regexp.QuoteMeta(`SELECT
 				id
 			FROM
-				test_tasks
+				test_schema.test_tasks
 			WHERE
 				type IN (?) AND
 				queue IN (?) AND
@@ -204,7 +222,7 @@ func (s *MySQLTestSuite) TestPollTasks() {
 			LIMIT ?
 			FOR UPDATE SKIP LOCKED;`)
 		updateMockRegexp = regexp.QuoteMeta(`UPDATE 
-				test_tasks
+				test_schema.test_tasks
 			SET
 				status = ?,
 				receive_count = receive_count + 1,
@@ -214,7 +232,7 @@ func (s *MySQLTestSuite) TestPollTasks() {
 		selectUpdatedMockRegexp = regexp.QuoteMeta(`SELECT 
 				* 
 			FROM 
-				test_tasks
+				test_schema.test_tasks
 			WHERE
 				id IN (?);`)
 	)
@@ -307,7 +325,7 @@ func (s *MySQLTestSuite) TestPollTasks() {
 func (s *MySQLTestSuite) TestCleanTasks() {
 	deleteMockRegexp := regexp.QuoteMeta(`DELETE 
 		FROM 
-			test_tasks 
+			test_schema.test_tasks 
 		WHERE 
 			status IN (?, ?) AND
 			created_at <= ?;`)
@@ -337,7 +355,7 @@ func (s *MySQLTestSuite) TestCleanTasks() {
 func (s *MySQLTestSuite) TestRegisterStart() {
 	var (
 		updateMockRegexp = regexp.QuoteMeta(`UPDATE 
-				test_tasks
+				test_schema.test_tasks
 			SET
 				status = ?,
 				started_at = ?
@@ -345,7 +363,7 @@ func (s *MySQLTestSuite) TestRegisterStart() {
 				id = ?;`)
 		selectMockRegexp = regexp.QuoteMeta(`SELECT * 
 			FROM 
-				test_tasks
+				test_schema.test_tasks
 			WHERE
 				id = ?;`)
 	)
@@ -410,14 +428,14 @@ func (s *MySQLTestSuite) TestRegisterStart() {
 func (s *MySQLTestSuite) TestRegisterError() {
 	var (
 		updateMockRegexp = regexp.QuoteMeta(`UPDATE 
-				test_tasks
+				test_schema.test_tasks
 			SET
 				last_error = ?
 			WHERE
 				id = ?;`)
 		selectMockRegexp = regexp.QuoteMeta(`SELECT * 
 			FROM 
-				test_tasks
+				test_schema.test_tasks
 			WHERE
 				id = ?;`)
 	)
@@ -482,7 +500,7 @@ func (s *MySQLTestSuite) TestRegisterError() {
 func (s *MySQLTestSuite) TestRegisterFinish() {
 	var (
 		updateMockRegexp = regexp.QuoteMeta(`UPDATE 
-				test_tasks
+				test_schema.test_tasks
 			SET
 				status = ?,
 				finished_at = ?
@@ -490,7 +508,7 @@ func (s *MySQLTestSuite) TestRegisterFinish() {
 				id = ?;`)
 		selectMockRegexp = regexp.QuoteMeta(`SELECT * 
 			FROM 
-				test_tasks
+				test_schema.test_tasks
 			WHERE
 				id = ?;`)
 	)
@@ -555,13 +573,13 @@ func (s *MySQLTestSuite) TestRegisterFinish() {
 func (s *MySQLTestSuite) TestSubmitTask() {
 	var (
 		insertMockRegexp = regexp.QuoteMeta(`INSERT INTO 
-				test_tasks
+				test_schema.test_tasks
 				(id, type, args, queue, priority, status, max_receives, created_at, visible_at) 
 			VALUES
 				(?, ?, ?, ?, ?, ?, ?, ?, ?);`)
 		selectMockRegexp = regexp.QuoteMeta(`SELECT * 
 			FROM 
-				test_tasks
+				test_schema.test_tasks
 			WHERE
 				id = ?;`)
 	)
@@ -627,12 +645,12 @@ func (s *MySQLTestSuite) TestDeleteTask() {
 	var (
 		deleteMockRegexp = regexp.QuoteMeta(`DELETE 
 			FROM 
-				test_tasks
+				test_schema.test_tasks
 			WHERE
 				id = ?;`)
 		deleteSafeDeleteMockRegexp = regexp.QuoteMeta(`DELETE 
 			FROM 
-				test_tasks 
+				test_schema.test_tasks 
 			WHERE 
 				id = ? AND 
 				(
@@ -669,7 +687,7 @@ func (s *MySQLTestSuite) TestCountTasks() {
 	selectMockRegexp := regexp.QuoteMeta(`SELECT
 			COUNT(*)
 		FROM
-			test_tasks
+			test_schema.test_tasks
 		WHERE 
 			status IN (?) AND 
 			type IN (?) AND
@@ -694,7 +712,7 @@ func (s *MySQLTestSuite) TestScanTasks() {
 	selectMockRegexp := regexp.QuoteMeta(`SELECT
 			*
 		FROM
-			test_tasks
+			test_schema.test_tasks
 		WHERE
 			status IN (?) AND
 			type IN (?) AND
@@ -721,13 +739,13 @@ func (s *MySQLTestSuite) TestPurgeTasks() {
 	var (
 		purgeMockRegexp = regexp.QuoteMeta(`DELETE 
 			FROM 
-				test_tasks 
+				test_schema.test_tasks 
 			WHERE 
 				status IN (?) AND 
 				queue IN (?);`)
 		purgeSafeDeleteMockRegexp = regexp.QuoteMeta(`DELETE 
 			FROM
-				test_tasks
+				test_schema.test_tasks
 			WHERE
 				status IN (?) AND
 				queue IN (?) AND 
@@ -772,14 +790,14 @@ func (s *MySQLTestSuite) TestPurgeTasks() {
 func (s *MySQLTestSuite) TestRequeueTask() {
 	var (
 		updateMockRegexp = regexp.QuoteMeta(`UPDATE 
-				test_tasks
+				test_schema.test_tasks
 			SET
 				status = ?
 			WHERE
 				id = ?;`)
 		selectMockRegexp = regexp.QuoteMeta(`SELECT * 
 			FROM 
-				test_tasks
+				test_schema.test_tasks
 			WHERE
 				id = ?;`)
 	)
@@ -866,9 +884,26 @@ func (s *MySQLTestSuite) TestGetQueryWithTableName() {
 		query, args := mysqlRepository.GetQueryWithTableName("SELECT * FROM {{.tableName}} WHERE id = :taskID", map[string]any{
 			"taskID": taskUUIDBytes,
 		})
-		s.Equal("SELECT * FROM test_tasks WHERE id = ?", query)
+		s.Equal("SELECT * FROM test_schema.test_tasks WHERE id = ?", query)
 		s.Contains(args, taskUUIDBytes)
 	})
+}
+
+func (s *MySQLTestSuite) TestGetQueryWithTableNameWithoutSchema() {
+	var (
+		taskUUID         = uuid.New()
+		taskUUIDBytes, _ = taskUUID.MarshalBinary()
+	)
+
+	repository, err := mysql.NewRepository(s.db, "test")
+	s.Require().NoError(err)
+
+	query, args := repository.GetQueryWithTableName("SELECT * FROM {{.tableName}} WHERE id = :taskID", map[string]any{
+		"taskID": taskUUIDBytes,
+	})
+
+	s.Equal("SELECT * FROM test_tasks WHERE id = ?", query)
+	s.Contains(args, taskUUIDBytes)
 }
 
 func (s *MySQLTestSuite) TestInterpolateSQL() {
@@ -889,4 +924,22 @@ func (s *MySQLTestSuite) TestInterpolateSQL() {
 		unexecutableTemplateSQL := mysql.InterpolateSQL(`SELECT * FROM {{if .tableName eq 1}} {{end}} {{.tableName}}`, params)
 		s.Empty(unexecutableTemplateSQL)
 	})
+}
+
+func (s *MySQLTestSuite) TestWithTableName() {
+	// Test WithTableName option
+	option := mysql.WithTableName("custom_table")
+	s.NotNil(option)
+
+	// Create a dummy repository to test the option
+	repo := &mysql.Repository{}
+	modifiedRepo := option(repo)(repo)
+	s.NotNil(modifiedRepo)
+
+	// Test WithSchemaName option
+	schemaOption := mysql.WithSchemaName("custom_schema")
+	s.NotNil(schemaOption)
+
+	modifiedRepo = schemaOption(repo)(repo)
+	s.NotNil(modifiedRepo)
 }

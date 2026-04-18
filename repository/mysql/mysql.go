@@ -20,6 +20,10 @@ import (
 
 const driverName = "mysql"
 
+const (
+	defaultTableName = "tasks"
+)
+
 var (
 	errUnexpectedDataSourceType   = errors.New("unexpected dataSource type")
 	errFailedToBeginTx            = errors.New("failed to begin transaction")
@@ -34,45 +38,72 @@ var (
 
 // Repository implements the menthods necessary for tasq to work in MySQL.
 type Repository struct {
-	db        *sqlx.DB
-	tableName string
+	db         *sqlx.DB
+	schemaName *string
+	tableName  string
 }
 
 // NewRepository creates a new MySQL Repository instance.
-func NewRepository(dataSource any, prefix string) (*Repository, error) {
+func NewRepository(dataSource any, prefix string, options ...Option) (*Repository, error) {
 	switch d := dataSource.(type) {
 	case string:
-		return newRepositoryFromDSN(d, prefix)
+		return newRepositoryFromDSN(d, prefix, options)
 	case *sql.DB:
-		return newRepositoryFromDB(d, prefix)
+		return newRepositoryFromDB(d, prefix, options)
 	}
 
 	return nil, fmt.Errorf("%w: %T", errUnexpectedDataSourceType, dataSource)
 }
 
-func newRepositoryFromDSN(dsn string, prefix string) (*Repository, error) {
+func newRepositoryFromDSN(dsn string, prefix string, options []Option) (*Repository, error) {
 	dbx, err := sqlx.Open(driverName, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open DB from dsn: %w", err)
 	}
 
-	return &Repository{
+	tableName := defaultTableName
+	if prefix != "" {
+		tableName = prefix + "_" + defaultTableName
+	}
+
+	repository := &Repository{
 		db:        dbx,
-		tableName: tableName(prefix),
-	}, nil
+		tableName: tableName,
+	}
+
+	for _, option := range options {
+		repository = option(repository)(repository)
+	}
+
+	return repository, nil
 }
 
-func newRepositoryFromDB(db *sql.DB, prefix string) (*Repository, error) {
+func newRepositoryFromDB(db *sql.DB, prefix string, options []Option) (*Repository, error) {
 	dbx := sqlx.NewDb(db, driverName)
 
-	return &Repository{
+	tableName := defaultTableName
+	if prefix != "" {
+		tableName = prefix + "_" + defaultTableName
+	}
+
+	repository := &Repository{
 		db:        dbx,
-		tableName: tableName(prefix),
-	}, nil
+		tableName: tableName,
+	}
+
+	for _, option := range options {
+		repository = option(repository)(repository)
+	}
+
+	return repository, nil
 }
 
 // Migrate prepares the database by adding the tasks table.
 func (d *Repository) Migrate(ctx context.Context) error {
+	if err := d.migrateSchema(ctx); err != nil {
+		return err
+	}
+
 	if err := d.migrateTable(ctx); err != nil {
 		return err
 	}
@@ -721,7 +752,7 @@ func (d *Repository) buildFilterConditions(taskStatuses []tasq.TaskStatus, taskT
 
 func (d *Repository) getQueryWithTableName(sqlTemplate string, args ...any) (string, []any) {
 	query := interpolateSQL(sqlTemplate, map[string]any{
-		"tableName": d.tableName,
+		"tableName": d.tableNameWithSchema(),
 	})
 
 	query, args, err := sqlx.Named(query, args)
@@ -735,6 +766,33 @@ func (d *Repository) getQueryWithTableName(sqlTemplate string, args ...any) (str
 	}
 
 	return d.db.Rebind(query), args
+}
+
+func (d *Repository) tableNameWithSchema() string {
+	if d.schemaName != nil && *d.schemaName != "" {
+		return fmt.Sprintf("%s.%s", *d.schemaName, d.tableName)
+	}
+
+	return d.tableName
+}
+
+func (d *Repository) migrateSchema(ctx context.Context) error {
+	if d.schemaName == nil || *d.schemaName == "" {
+		return nil
+	}
+
+	const sqlSchemaTemplate = `CREATE SCHEMA IF NOT EXISTS {{.schemaName}};`
+
+	query := interpolateSQL(sqlSchemaTemplate, map[string]any{
+		"schemaName": *d.schemaName,
+	})
+
+	_, err := d.db.ExecContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errFailedToExecuteCreateTable, err)
+	}
+
+	return nil
 }
 
 func (d *Repository) migrateTable(ctx context.Context) error {
@@ -756,7 +814,7 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 		);`
 
 	query := interpolateSQL(sqlTemplate, map[string]any{
-		"tableName":  d.tableName,
+		"tableName":  d.tableNameWithSchema(),
 		"enumValues": sliceToMySQLValueList(tasq.GetTaskStatuses(tasq.AllTasks)),
 	})
 
@@ -798,16 +856,6 @@ func sliceToMySQLValueList[T any](slice []T) string {
 	}
 
 	return fmt.Sprintf(`"%s"`, strings.Join(stringSlice, `", "`))
-}
-
-func tableName(prefix string) string {
-	const tableName = "tasks"
-
-	if len(prefix) > 0 {
-		return prefix + "_" + tableName
-	}
-
-	return tableName
 }
 
 func interpolateSQL(sql string, params map[string]any) string {

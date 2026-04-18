@@ -47,3 +47,7 @@ func StringToSQLNullString(input *string) sql.NullString {
 func ParseNullableString(input sql.NullString) *string {
 	return parseNullableString(input)
 }
+
+func StatusTypeName(prefix string) string {
+	return statusTypeName(prefix)
+}

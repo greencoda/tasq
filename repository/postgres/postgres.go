@@ -19,6 +19,11 @@ import (
 
 const driverName = "postgres"
 
+const (
+	defaultTableName            = "tasks"
+	defaultStatusTypeNamePrefix = "tasq"
+)
+
 var (
 	errUnexpectedDataSourceType   = errors.New("unexpected dataSource type")
 	errFailedToExecuteUpdate      = errors.New("failed to execute update query")
@@ -31,52 +36,83 @@ var (
 // Repository implements the menthods necessary for tasq to work in PostgreSQL.
 type Repository struct {
 	db             *sqlx.DB
-	statusTypeName string
+	schemaName     *string
 	tableName      string
+	statusTypeName string
 }
 
 // NewRepository creates a new PostgreSQL Repository instance.
-func NewRepository(dataSource any, prefix string) (*Repository, error) {
+func NewRepository(dataSource any, options ...Option) (*Repository, error) {
 	switch d := dataSource.(type) {
 	case string:
-		return newRepositoryFromDSN(d, prefix)
+		return newRepositoryFromDSN(d, options)
 	case *sql.DB:
-		return newRepositoryFromDB(d, prefix)
+		return newRepositoryFromDB(d, options)
 	}
 
 	return nil, fmt.Errorf("%w: %T", errUnexpectedDataSourceType, dataSource)
 }
 
-func newRepositoryFromDSN(dsn string, prefix string) (*Repository, error) {
+func newRepositoryFromDSN(dsn string, options []Option) (*Repository, error) {
 	dbx, _ := sqlx.Open(driverName, dsn)
 
-	return &Repository{
+	repository := &Repository{
 		db:             dbx,
-		statusTypeName: statusTypeName(prefix),
-		tableName:      tableName(prefix),
-	}, nil
+		tableName:      defaultTableName,
+		statusTypeName: statusTypeName(defaultStatusTypeNamePrefix),
+	}
+
+	for _, option := range options {
+		repository = option(repository)(repository)
+	}
+
+	return repository, nil
 }
 
-func newRepositoryFromDB(db *sql.DB, prefix string) (*Repository, error) {
+func newRepositoryFromDB(db *sql.DB, options []Option) (*Repository, error) {
 	dbx := sqlx.NewDb(db, driverName)
 
-	return &Repository{
+	repository := &Repository{
 		db:             dbx,
-		statusTypeName: statusTypeName(prefix),
-		tableName:      tableName(prefix),
-	}, nil
+		statusTypeName: statusTypeName(defaultStatusTypeNamePrefix),
+		tableName:      defaultTableName,
+	}
+
+	for _, option := range options {
+		repository = option(repository)(repository)
+	}
+
+	return repository, nil
 }
 
 // Migrate prepares the database with the task status type
 // and by adding the tasks table.
-func (d *Repository) Migrate(ctx context.Context) error {
-	err := d.migrateStatus(ctx)
+func (d *Repository) Migrate(ctx context.Context) (err error) {
+	tx, err := d.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err == nil {
+			return
+		}
 
-	err = d.migrateTable(ctx)
-	if err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			err = fmt.Errorf("tx error: %v, rollback error: %v", err, rbErr)
+		}
+	}()
+
+	if err = d.migrateStatus(ctx, tx); err != nil {
+		return err
+	}
+	if err = d.migrateSchema(ctx, tx); err != nil {
+		return err
+	}
+	if err = d.migrateTable(ctx, tx); err != nil {
+		return err
+	}
+
+	if err = tx.Commit(); err != nil {
 		return err
 	}
 
@@ -506,7 +542,15 @@ func (d *Repository) buildFilterConditions(taskStatuses []tasq.TaskStatus, taskT
 	return conditions, parameters
 }
 
-func (d *Repository) migrateStatus(ctx context.Context) error {
+func (d *Repository) tableNameWithSchema() string {
+	if d.schemaName != nil {
+		return fmt.Sprintf("%s.%s", *d.schemaName, d.tableName)
+	}
+
+	return d.tableName
+}
+
+func (d *Repository) migrateStatus(ctx context.Context, tx *sqlx.Tx) error {
 	var (
 		sqlTemplate = `DO $$
 			BEGIN
@@ -520,7 +564,7 @@ func (d *Repository) migrateStatus(ctx context.Context) error {
 		})
 	)
 
-	_, err := d.db.ExecContext(ctx, query)
+	_, err := tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errFailedToExecuteCreateType, err)
 	}
@@ -528,7 +572,26 @@ func (d *Repository) migrateStatus(ctx context.Context) error {
 	return nil
 }
 
-func (d *Repository) migrateTable(ctx context.Context) error {
+func (d *Repository) migrateSchema(ctx context.Context, tx *sqlx.Tx) error {
+	if d.schemaName == nil {
+		return nil
+	}
+
+	const sqlSchemaTemplate = `CREATE SCHEMA IF NOT EXISTS {{.schemaName}};`
+
+	query := interpolateSQL(sqlSchemaTemplate, map[string]any{
+		"schemaName": *d.schemaName,
+	})
+
+	_, err := tx.ExecContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errFailedToExecuteCreateTable, err)
+	}
+
+	return nil
+}
+
+func (d *Repository) migrateTable(ctx context.Context, tx *sqlx.Tx) error {
 	const sqlTemplate = `CREATE TABLE IF NOT EXISTS {{.tableName}} (
 			"id" UUID NOT NULL PRIMARY KEY,
 			"type" TEXT NOT NULL,
@@ -546,11 +609,11 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 		);`
 
 	query := interpolateSQL(sqlTemplate, map[string]any{
-		"tableName":      d.tableName,
+		"tableName":      d.tableNameWithSchema(),
 		"statusTypeName": d.statusTypeName,
 	})
 
-	_, err := d.db.ExecContext(ctx, query)
+	_, err := tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errFailedToExecuteCreateTable, err)
 	}
@@ -560,7 +623,7 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 
 func (d *Repository) prepareWithTableName(sqlTemplate string) *sqlx.NamedStmt {
 	query := interpolateSQL(sqlTemplate, map[string]any{
-		"tableName": d.tableName,
+		"tableName": d.tableNameWithSchema(),
 	})
 
 	namedStmt, err := d.db.PrepareNamed(query)
@@ -615,16 +678,6 @@ func statusTypeName(prefix string) string {
 	}
 
 	return statusTypeName
-}
-
-func tableName(prefix string) string {
-	const tableName = "tasks"
-
-	if len(prefix) > 0 {
-		return prefix + "_" + tableName
-	}
-
-	return tableName
 }
 
 func interpolateSQL(sql string, params map[string]any) string {

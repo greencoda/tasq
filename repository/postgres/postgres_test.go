@@ -72,59 +72,115 @@ func (s *PostgresTestSuite) SetupTest() {
 	s.db, s.sqlMock, err = sqlmock.New()
 	s.Require().NoError(err)
 
-	s.mockedRepository, err = postgres.NewRepository(s.db, "test")
+	s.mockedRepository, err = postgres.NewRepository(s.db, postgres.WithTypePrefix("test"), postgres.WithTableName("test_tasks"), postgres.WithSchemaName("test_schema"))
 	s.Require().NotNil(s.mockedRepository)
 	s.Require().NoError(err)
 }
 
 func (s *PostgresTestSuite) TestNewRepository() {
 	// providing the datasource as *sql.DB
-	repository, err := postgres.NewRepository(s.db, "test")
+	repository, err := postgres.NewRepository(s.db, postgres.WithTypePrefix("test"), postgres.WithTableName("test_tasks"), postgres.WithSchemaName("test_schema"))
 	s.NotNil(repository)
 	s.NoError(err)
 
 	// providing the datasource as *sql.DB with no prefix
-	repository, err = postgres.NewRepository(s.db, "")
+	repository, err = postgres.NewRepository(s.db)
 	s.NotNil(repository)
 	s.NoError(err)
 
 	// providing the datasource as dsn string
-	repository, err = postgres.NewRepository("testDSN", "test")
+	repository, err = postgres.NewRepository("testDSN", postgres.WithTypePrefix("test"))
 	s.NotNil(repository)
 	s.NoError(err)
 
 	// providing the datasource as unknown datasource type
-	repository, err = postgres.NewRepository(false, "test")
+	repository, err = postgres.NewRepository(false)
 	s.Nil(repository)
 	s.Error(err)
 }
 
 func (s *PostgresTestSuite) TestMigrate() {
-	// First try - creating the task_status type fails
-	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnError(errSQL)
+	// BeginTx fails
+	s.sqlMock.ExpectBegin().WillReturnError(errSQL)
 
 	err := s.mockedRepository.Migrate(ctx)
 	s.Error(err)
 
-	// Second try - creating the tasks table fails
-	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
-	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_tasks`).WillReturnError(errSQL)
+	// First try - creating the task_status type fails
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnError(errSQL)
+	s.sqlMock.ExpectRollback()
 
 	err = s.mockedRepository.Migrate(ctx)
 	s.Error(err)
 
-	// Third try - migration succeeds
+	// Second try - creating the schema fails
+	s.sqlMock.ExpectBegin()
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
-	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnError(errSQL)
+	s.sqlMock.ExpectRollback()
 
 	err = s.mockedRepository.Migrate(ctx)
+	s.Error(err)
+
+	// Third try - creating the tasks table fails
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnError(errSQL)
+	s.sqlMock.ExpectRollback()
+
+	err = s.mockedRepository.Migrate(ctx)
+	s.Error(err)
+
+	// Fourth try - rollback fails
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnError(errSQL)
+	s.sqlMock.ExpectRollback().WillReturnError(errSQL)
+
+	err = s.mockedRepository.Migrate(ctx)
+	s.Error(err)
+
+	// Fifth try - commit fails
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectCommit().WillReturnError(errSQL)
+
+	err = s.mockedRepository.Migrate(ctx)
+	s.Error(err)
+
+	// Sixth try - migration succeeds
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectCommit()
+
+	err = s.mockedRepository.Migrate(ctx)
+	s.NoError(err)
+}
+
+func (s *PostgresTestSuite) TestMigrateWithoutSchema() {
+	repository, err := postgres.NewRepository(s.db, postgres.WithTypePrefix("test"))
+	s.Require().NoError(err)
+
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectCommit()
+
+	err = repository.Migrate(ctx)
 	s.NoError(err)
 }
 
 func (s *PostgresTestSuite) TestPingTasks() {
 	var (
 		taskUUID       = uuid.New()
-		stmtMockRegexp = regexp.QuoteMeta(`UPDATE test_tasks SET "visible_at" = $1 WHERE "id" = ANY($2) RETURNING id;`)
+		stmtMockRegexp = regexp.QuoteMeta(`UPDATE test_schema.test_tasks SET "visible_at" = $1 WHERE "id" = ANY($2) RETURNING id;`)
 	)
 	// pinging empty tasklist
 	tasks, err := s.mockedRepository.PingTasks(ctx, []uuid.UUID{}, 15*time.Second)
@@ -154,14 +210,14 @@ func (s *PostgresTestSuite) TestPingTasks() {
 }
 
 func (s *PostgresTestSuite) TestPollTasks() {
-	stmtMockRegexp := regexp.QuoteMeta(`UPDATE test_tasks SET 
+	stmtMockRegexp := regexp.QuoteMeta(`UPDATE test_schema.test_tasks SET 
 			"status" = $1, 
 			"receive_count" = "receive_count" + 1, 
 			"visible_at" = $2 
 		WHERE "id" IN ( 
 			SELECT 
 				"id" 
-			FROM test_tasks 
+			FROM test_schema.test_tasks 
 			WHERE "type" = ANY($3) 
 				AND "queue" = ANY($4) 
 				AND "status" = ANY($5) 
@@ -214,7 +270,7 @@ func (s *PostgresTestSuite) TestPollTasks() {
 }
 
 func (s *PostgresTestSuite) TestCleanTasks() {
-	stmtMockRegexp := regexp.QuoteMeta(`DELETE FROM test_tasks WHERE "status" = ANY($1) AND "created_at" <= $2;`)
+	stmtMockRegexp := regexp.QuoteMeta(`DELETE FROM test_schema.test_tasks WHERE "status" = ANY($1) AND "created_at" <= $2;`)
 
 	// cleaning when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectExec().WillReturnError(errSQL)
@@ -239,7 +295,7 @@ func (s *PostgresTestSuite) TestCleanTasks() {
 }
 
 func (s *PostgresTestSuite) TestRegisterStart() {
-	stmtMockRegexp := regexp.QuoteMeta(`UPDATE test_tasks SET "status" = $1, "started_at" = $2 WHERE "id" = $3 RETURNING *;`)
+	stmtMockRegexp := regexp.QuoteMeta(`UPDATE test_schema.test_tasks SET "status" = $1, "started_at" = $2 WHERE "id" = $3 RETURNING *;`)
 
 	// registering start when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
@@ -257,7 +313,7 @@ func (s *PostgresTestSuite) TestRegisterStart() {
 }
 
 func (s *PostgresTestSuite) TestRegisterError() {
-	stmtMockRegexp := regexp.QuoteMeta(`UPDATE test_tasks SET "last_error" = $1 WHERE "id" = $2 RETURNING *;`)
+	stmtMockRegexp := regexp.QuoteMeta(`UPDATE test_schema.test_tasks SET "last_error" = $1 WHERE "id" = $2 RETURNING *;`)
 
 	// registering error when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
@@ -275,7 +331,7 @@ func (s *PostgresTestSuite) TestRegisterError() {
 }
 
 func (s *PostgresTestSuite) TestRegisterFinish() {
-	stmtMockRegexp := regexp.QuoteMeta(`UPDATE test_tasks SET "status" = $1, "finished_at" = $2 WHERE "id" = $3 RETURNING *;`)
+	stmtMockRegexp := regexp.QuoteMeta(`UPDATE test_schema.test_tasks SET "status" = $1, "finished_at" = $2 WHERE "id" = $3 RETURNING *;`)
 
 	// registering failure when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
@@ -293,7 +349,7 @@ func (s *PostgresTestSuite) TestRegisterFinish() {
 }
 
 func (s *PostgresTestSuite) TestSubmitTask() {
-	stmtMockRegexp := regexp.QuoteMeta(`INSERT INTO test_tasks  (id, type, args, queue, priority, status, max_receives, created_at, visible_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *;`)
+	stmtMockRegexp := regexp.QuoteMeta(`INSERT INTO test_schema.test_tasks  (id, type, args, queue, priority, status, max_receives, created_at, visible_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *;`)
 
 	// submitting task when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
@@ -314,12 +370,12 @@ func (s *PostgresTestSuite) TestDeleteTask() {
 	var (
 		stmtMockRegexp = regexp.QuoteMeta(`DELETE 
 		FROM 
-			test_tasks 
+			test_schema.test_tasks 
 		WHERE 
 			"id" = $1;`)
 		stmtInvisibleMockRegexp = regexp.QuoteMeta(`DELETE 
 		FROM 
-			test_tasks 
+			test_schema.test_tasks 
 		WHERE 
 			"id" = $1 AND
 			(
@@ -353,7 +409,7 @@ func (s *PostgresTestSuite) TestDeleteTask() {
 }
 
 func (s *PostgresTestSuite) TestRequeueTask() {
-	stmtMockRegexp := regexp.QuoteMeta(`UPDATE test_tasks SET "status" = $1 WHERE "id" = $2 RETURNING *;`)
+	stmtMockRegexp := regexp.QuoteMeta(`UPDATE test_schema.test_tasks SET "status" = $1 WHERE "id" = $2 RETURNING *;`)
 
 	// requeuing task when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
@@ -371,7 +427,7 @@ func (s *PostgresTestSuite) TestRequeueTask() {
 }
 
 func (s *PostgresTestSuite) TestCountTasks() {
-	stmtMockRegexp := regexp.QuoteMeta(`SELECT COUNT(*) FROM test_tasks WHERE "status" = ANY($1) AND "type" = ANY($2) AND "queue" = ANY($3)`)
+	stmtMockRegexp := regexp.QuoteMeta(`SELECT COUNT(*) FROM test_schema.test_tasks WHERE "status" = ANY($1) AND "type" = ANY($2) AND "queue" = ANY($3)`)
 
 	// counting tasks when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
@@ -389,7 +445,7 @@ func (s *PostgresTestSuite) TestCountTasks() {
 }
 
 func (s *PostgresTestSuite) TestScanTasks() {
-	stmtMockRegexp := regexp.QuoteMeta(`SELECT * FROM test_tasks WHERE "status" = ANY($1) AND "type" = ANY($2) AND "queue" = ANY($3) ORDER BY $4 LIMIT $5;`)
+	stmtMockRegexp := regexp.QuoteMeta(`SELECT * FROM test_schema.test_tasks WHERE "status" = ANY($1) AND "type" = ANY($2) AND "queue" = ANY($3) ORDER BY $4 LIMIT $5;`)
 
 	// scanning tasks when DB returns error
 	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(errSQL)
@@ -410,13 +466,13 @@ func (s *PostgresTestSuite) TestPurgeTasks() {
 	var (
 		stmtMockRegexp = regexp.QuoteMeta(`DELETE 
 			FROM 
-				test_tasks 
+				test_schema.test_tasks 
 			WHERE 
 				"status" = ANY($1) AND 
 				"queue" = ANY($2);`)
 		stmtSafeDeleteMockRegexp = regexp.QuoteMeta(`DELETE 
 			FROM 
-				test_tasks 
+				test_schema.test_tasks 
 			WHERE 
 				"status" = ANY($1) AND 
 				"queue" = ANY($2) AND 
@@ -456,7 +512,7 @@ func (s *PostgresTestSuite) TestPurgeTasks() {
 }
 
 func (s *PostgresTestSuite) TestPrepareWithTableName() {
-	stmtMockRegexp := regexp.QuoteMeta(`SELECT * FROM test_tasks`)
+	stmtMockRegexp := regexp.QuoteMeta(`SELECT * FROM test_schema.test_tasks`)
 
 	postgresRepository, ok := s.mockedRepository.(*postgres.Repository)
 	s.Require().True(ok)
@@ -470,14 +526,14 @@ func (s *PostgresTestSuite) TestPrepareWithTableName() {
 }
 
 func (s *PostgresTestSuite) TestCloseNamedStmt() {
-	stmtMockRegexp := regexp.QuoteMeta(`SELECT * FROM test_tasks`)
+	stmtMockRegexp := regexp.QuoteMeta(`SELECT * FROM test_schema.test_tasks`)
 
 	postgresRepository, ok := s.mockedRepository.(*postgres.Repository)
 	s.Require().True(ok)
 
 	s.sqlMock.ExpectPrepare(stmtMockRegexp)
 
-	stmt, err := s.db.PrepareContext(ctx, "SELECT * FROM test_tasks")
+	stmt, err := s.db.PrepareContext(ctx, "SELECT * FROM test_schema.test_tasks")
 	s.Require().NoError(err)
 
 	// an alternative DB to test the panic
@@ -512,4 +568,36 @@ func (s *PostgresTestSuite) TestInterpolateSQL() {
 		unexecutableTemplateSQL := postgres.InterpolateSQL(`SELECT * FROM {{if .tableName eq 1}} {{end}} {{.tableName}}`, params)
 		s.Empty(unexecutableTemplateSQL)
 	})
+}
+
+func (s *PostgresTestSuite) TestWithTableName() {
+	// Test WithTableName option
+	repository, err := postgres.NewRepository(s.db, postgres.WithTableName("custom_table"))
+	s.NotNil(repository)
+	s.NoError(err)
+
+	// Test WithTableName with empty string
+	repository, err = postgres.NewRepository(s.db, postgres.WithTableName(""))
+	s.NotNil(repository)
+	s.NoError(err)
+
+	// Test WithTableName and WithTypePrefix together
+	repository, err = postgres.NewRepository(s.db, postgres.WithTableName("my_tasks"), postgres.WithTypePrefix("custom"))
+	s.NotNil(repository)
+	s.NoError(err)
+
+	// Test WithTypePrefix with empty string (should use default table name)
+	repository, err = postgres.NewRepository(s.db, postgres.WithTypePrefix(""))
+	s.NotNil(repository)
+	s.NoError(err)
+}
+
+func (s *PostgresTestSuite) TestStatusTypeName() {
+	// Test StatusTypeName with non-empty prefix
+	typeName := postgres.StatusTypeName("test")
+	s.Equal("test_task_status", typeName)
+
+	// Test StatusTypeName with empty prefix
+	typeName = postgres.StatusTypeName("")
+	s.Equal("task_status", typeName)
 }
