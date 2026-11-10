@@ -230,7 +230,7 @@ func TestIntegrationConcurrentSubmit(t *testing.T) {
 	require.Equal(t, 1, env.rowCount(t, "TRUE"))
 }
 
-func TestIntegrationMigrateUpgradesPreviousVersion(t *testing.T) {
+func TestIntegrationManualUpgradeFromPreviousVersion(t *testing.T) {
 	t.Parallel()
 
 	var (
@@ -265,29 +265,18 @@ func TestIntegrationMigrateUpgradesPreviousVersion(t *testing.T) {
 	legacy, err := env.repo.SubmitTask(ctx, newKeyedTask(t, "delete", ""))
 	require.NoError(t, err)
 
-	columnCount := func() (columns, indexes int) {
-		require.NoError(t, env.db.QueryRow(`SELECT COUNT(*) FROM information_schema.columns WHERE table_name = $1 AND column_name = 'dedup_key'`, env.tableName).Scan(&columns))
-		require.NoError(t, env.db.QueryRow(`SELECT COUNT(*) FROM pg_indexes WHERE tablename = $1 AND indexname = $2`, env.tableName, env.tableName+"_open_dedup_key_idx").Scan(&indexes))
+	// Migrate does not upgrade old tables: it fails because the dedup_key column is missing
+	require.Error(t, env.repo.Migrate(ctx))
 
-		return columns, indexes
-	}
+	// the manual steps documented in UPGRADING.md
+	_, err = env.db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN "dedup_key" TEXT`, env.tableName))
+	require.NoError(t, err)
 
-	columns, indexes := columnCount()
-	require.Zero(t, columns)
-	require.Zero(t, indexes)
+	_, err = env.db.Exec(fmt.Sprintf(`CREATE UNIQUE INDEX %[1]s_open_dedup_key_idx ON %[1]s ("type", "dedup_key") WHERE "dedup_key" IS NOT NULL AND "status" IN ('NEW','ENQUEUED','IN_PROGRESS')`, env.tableName))
+	require.NoError(t, err)
 
+	// afterwards Migrate is a no-op
 	require.NoError(t, env.repo.Migrate(ctx))
-
-	columns, indexes = columnCount()
-	require.Equal(t, 1, columns)
-	require.Equal(t, 1, indexes)
-
-	// second run is a no-op
-	require.NoError(t, env.repo.Migrate(ctx))
-
-	columns, indexes = columnCount()
-	require.Equal(t, 1, columns)
-	require.Equal(t, 1, indexes)
 
 	// legacy row has a NULL key and still round-trips
 	scanned, err := env.repo.ScanTasks(ctx, nil, nil, nil, tasq.OrderingCreatedAtFirst, 10)

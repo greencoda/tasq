@@ -11,7 +11,7 @@ import (
 	"text/template"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql" // import mysql driver
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq"
 	"github.com/jmoiron/sqlx"
@@ -22,10 +22,13 @@ const driverName = "mysql"
 
 const (
 	defaultTableName = "tasks"
+
+	// mysqlDuplicateEntry is the MySQL error number for ER_DUP_ENTRY.
+	mysqlDuplicateEntry = 1062
 )
 
 var (
-	errDedupKeyNotSupported       = errors.New("task de-duplication is not supported by the mysql repository")
+	errDedupSubmitExhausted       = errors.New("failed to submit task with dedup key: conflicting task kept disappearing")
 	errUnexpectedDataSourceType   = errors.New("unexpected dataSource type")
 	errFailedToBeginTx            = errors.New("failed to begin transaction")
 	errFailedToCommitTx           = errors.New("failed to commit transaction")
@@ -472,17 +475,50 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finish
 }
 
 // SubmitTask adds the supplied task to the queue.
+//
+// If the task has a dedup key and an open task (NEW, ENQUEUED or IN_PROGRESS) with the
+// same type and key already exists, nothing is inserted and the existing task is returned
+// together with an error wrapping tasq.ErrDuplicateTask. Tasks without a dedup key are
+// inserted unconditionally.
 func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Task, error) {
-	if task.DedupKey != nil {
-		return nil, errDedupKeyNotSupported
+	if task.DedupKey == nil {
+		return d.insertTask(ctx, task)
 	}
 
+	// The conflicting task may finish between a rejected insert and the select
+	// that looks for it, in which case the insert is attempted once more.
+	const maxAttempts = 2
+
+	for range maxAttempts {
+		insertedTask, err := d.insertTask(ctx, task)
+		if err == nil {
+			return insertedTask, nil
+		}
+
+		if !isDedupViolation(err, d.dedupIndexName()) {
+			return nil, err
+		}
+
+		existingTask, err := d.selectOpenTaskByDedupKey(ctx, task.Type, *task.DedupKey)
+		if err != nil {
+			return nil, err
+		}
+
+		if existingTask != nil {
+			return existingTask, fmt.Errorf("%w: type %q, dedup key %q", tasq.ErrDuplicateTask, task.Type, *task.DedupKey)
+		}
+	}
+
+	return nil, errDedupSubmitExhausted
+}
+
+func (d *Repository) insertTask(ctx context.Context, task *tasq.Task) (*tasq.Task, error) {
 	const (
 		insertTaskSQLTemplate = `INSERT INTO 
 				{{.tableName}} 
-				(id, type, args, queue, priority, status, max_receives, created_at, visible_at) 
+				(id, type, args, queue, priority, status, max_receives, created_at, visible_at, dedup_key) 
 			VALUES
-				(:id, :type, :args, :queue, :priority, :status, :maxReceives, :createdAt, :visibleAt);`
+				(:id, :type, :args, :queue, :priority, :status, :maxReceives, :createdAt, :visibleAt, :dedupKey);`
 		selectInsertedTaskSQLTemplate = `SELECT * 
 			FROM 
 				{{.tableName}}
@@ -509,6 +545,7 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 			"maxReceives": mySQLTask.MaxReceives,
 			"createdAt":   mySQLTask.CreatedAt,
 			"visibleAt":   mySQLTask.VisibleAt,
+			"dedupKey":    mySQLTask.DedupKey,
 		})
 	)
 
@@ -533,6 +570,47 @@ func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Tas
 	}
 
 	return mySQLTask.toTask(), nil
+}
+
+// selectOpenTaskByDedupKey returns the open task holding the supplied type and dedup key,
+// or nil without an error if there is none.
+func (d *Repository) selectOpenTaskByDedupKey(ctx context.Context, taskType, dedupKey string) (*tasq.Task, error) {
+	const sqlTemplate = `SELECT * 
+		FROM 
+			{{.tableName}}
+		WHERE
+			type = :type AND
+			dedup_key = :dedupKey AND
+			status IN (:statuses)
+		LIMIT 1;`
+
+	query, args := d.getQueryWithTableName(sqlTemplate, map[string]any{
+		"type":     taskType,
+		"dedupKey": dedupKey,
+		"statuses": tasq.GetTaskStatuses(tasq.OpenTasks),
+	})
+
+	existingTask := new(mySQLTask)
+
+	err := d.db.QueryRowxContext(ctx, query, args...).StructScan(existingTask)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil //nolint:nilnil // no open task found, signalled to the caller by the nil task
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errFailedToExecuteSelect, err)
+	}
+
+	return existingTask.toTask(), nil
+}
+
+// isDedupViolation reports whether err is a unique violation on the named dedup index.
+func isDedupViolation(err error, indexName string) bool {
+	var mysqlErr *mysqldriver.MySQLError
+
+	return errors.As(err, &mysqlErr) &&
+		mysqlErr.Number == mysqlDuplicateEntry &&
+		strings.Contains(mysqlErr.Message, indexName)
 }
 
 // DeleteTask removes the supplied task from the queue.
@@ -596,6 +674,10 @@ func (d *Repository) RequeueTask(ctx context.Context, task *tasq.Task) (*tasq.Ta
 
 	_, err = tx.ExecContext(ctx, updateTaskQuery, updateTaskArgs...)
 	if err != nil {
+		if isDedupViolation(err, d.dedupIndexName()) {
+			return nil, fmt.Errorf("%w: %w: %w", errFailedToExecuteUpdate, tasq.ErrDuplicateTask, err)
+		}
+
 		return nil, fmt.Errorf("%w: %w", errFailedToExecuteUpdate, err)
 	}
 
@@ -804,6 +886,7 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 	const sqlTemplate = `CREATE TABLE IF NOT EXISTS {{.tableName}} (
             id binary(16) NOT NULL,
             type text NOT NULL,
+            dedup_key varchar(255),
             args longblob NOT NULL,
             queue text NOT NULL,
             priority smallint NOT NULL,
@@ -815,12 +898,19 @@ func (d *Repository) migrateTable(ctx context.Context) error {
             started_at datetime(6),
             finished_at datetime(6),
             visible_at datetime(6) NOT NULL DEFAULT '0001-01-01 00:00:00.000000',
-            PRIMARY KEY (id)
+            open_dedup_hash char(64) GENERATED ALWAYS AS (
+                CASE WHEN dedup_key IS NOT NULL AND status IN ({{.openStatuses}})
+                THEN SHA2(CONCAT_WS(CHAR(0), type, dedup_key), 256) END
+            ) VIRTUAL,
+            PRIMARY KEY (id),
+            UNIQUE KEY {{.dedupIndexName}} (open_dedup_hash)
 		);`
 
 	query := interpolateSQL(sqlTemplate, map[string]any{
-		"tableName":  d.tableNameWithSchema(),
-		"enumValues": sliceToMySQLValueList(tasq.GetTaskStatuses(tasq.AllTasks)),
+		"tableName":      d.tableNameWithSchema(),
+		"enumValues":     sliceToMySQLValueList(tasq.GetTaskStatuses(tasq.AllTasks)),
+		"openStatuses":   sliceToSingleQuotedList(tasq.GetTaskStatuses(tasq.OpenTasks)),
+		"dedupIndexName": d.dedupIndexName(),
 	})
 
 	_, err := d.db.ExecContext(ctx, query)
@@ -829,6 +919,22 @@ func (d *Repository) migrateTable(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// dedupIndexName is the unique index over the generated open_dedup_hash column. Tables created
+// by versions before v1.2.0 must be altered by hand to have it (see UPGRADING.md).
+func (d *Repository) dedupIndexName() string {
+	return d.tableName + "_open_dedup_idx"
+}
+
+func sliceToSingleQuotedList[T any](slice []T) string {
+	stringSlice := make([]string, 0, len(slice))
+
+	for _, s := range slice {
+		stringSlice = append(stringSlice, fmt.Sprint(s))
+	}
+
+	return fmt.Sprintf(`'%s'`, strings.Join(stringSlice, `', '`))
 }
 
 func getOrderingDirectives(ordering tasq.Ordering) []string {

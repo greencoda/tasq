@@ -67,6 +67,9 @@ type mySQLTask struct {
 	StartedAt    sql.NullString  `db:"started_at"`
 	FinishedAt   sql.NullString  `db:"finished_at"`
 	VisibleAt    string          `db:"visible_at"`
+	DedupKey     sql.NullString  `db:"dedup_key"`
+	// OpenDedupHash is a generated column backing the unique index; it is only read, never written.
+	OpenDedupHash sql.NullString `db:"open_dedup_hash"`
 }
 
 func newFromTask(task *tasq.Task) *mySQLTask {
@@ -84,6 +87,7 @@ func newFromTask(task *tasq.Task) *mySQLTask {
 		StartedAt:    timeToSQLNullString(task.StartedAt),
 		FinishedAt:   timeToSQLNullString(task.FinishedAt),
 		VisibleAt:    timeToString(task.VisibleAt),
+		DedupKey:     stringToSQLNullString(task.DedupKey),
 	}
 }
 
@@ -102,6 +106,7 @@ func (t *mySQLTask) toTask() *tasq.Task {
 		StartedAt:    parseNullableTime(t.StartedAt),
 		FinishedAt:   parseNullableTime(t.FinishedAt),
 		VisibleAt:    parseTime(t.VisibleAt),
+		DedupKey:     parseNullableString(t.DedupKey),
 	}
 }
 

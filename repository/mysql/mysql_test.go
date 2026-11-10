@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq"
 	"github.com/greencoda/tasq/repository/mysql"
@@ -574,9 +575,9 @@ func (s *MySQLTestSuite) TestSubmitTask() {
 	var (
 		insertMockRegexp = regexp.QuoteMeta(`INSERT INTO 
 				test_schema.test_tasks
-				(id, type, args, queue, priority, status, max_receives, created_at, visible_at) 
+				(id, type, args, queue, priority, status, max_receives, created_at, visible_at, dedup_key) 
 			VALUES
-				(?, ?, ?, ?, ?, ?, ?, ?, ?);`)
+				(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`)
 		selectMockRegexp = regexp.QuoteMeta(`SELECT * 
 			FROM 
 				test_schema.test_tasks
@@ -589,12 +590,6 @@ func (s *MySQLTestSuite) TestSubmitTask() {
 
 	task, err := s.mockedRepository.SubmitTask(ctx, testTask)
 	s.Empty(task)
-	s.Error(err)
-
-	// dedup keys are not supported
-	keyedTask, _ := tasq.NewTask("testTask", true, "testQueue", 1, 1)
-	task, err = s.mockedRepository.SubmitTask(ctx, keyedTask.WithDedupKey("key"))
-	s.Nil(task)
 	s.Error(err)
 
 	// registering failure when update fails
@@ -645,6 +640,86 @@ func (s *MySQLTestSuite) TestSubmitTask() {
 	task, err = s.mockedRepository.SubmitTask(ctx, testTask)
 	s.NotEmpty(task)
 	s.NoError(err)
+}
+
+func (s *MySQLTestSuite) TestSubmitTaskWithDedupKey() {
+	var (
+		insertMockRegexp = regexp.QuoteMeta(`INSERT INTO`)
+		selectIDRegexp   = regexp.QuoteMeta(`WHERE
+				id = ?;`)
+		selectDedupRegexp = `dedup_key = \? AND`
+		dupErr            = &mysqldriver.MySQLError{Number: 1062, Message: "Duplicate entry 'x' for key 'test_tasks.test_tasks_open_dedup_idx'"}
+		otherDupErr       = &mysqldriver.MySQLError{Number: 1062, Message: "Duplicate entry 'x' for key 'test_tasks.PRIMARY'"}
+	)
+
+	keyedTask, _ := tasq.NewTask("testTask", true, "testQueue", 1, 1)
+	keyedTask.WithDedupKey("key")
+
+	// insert succeeds
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(insertMockRegexp).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectQuery(selectIDRegexp).WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
+	s.sqlMock.ExpectCommit()
+
+	task, err := s.mockedRepository.SubmitTask(ctx, keyedTask)
+	s.NotNil(task)
+	s.NoError(err)
+
+	// duplicate: the existing task is returned with ErrDuplicateTask
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(insertMockRegexp).WillReturnError(dupErr)
+	s.sqlMock.ExpectRollback()
+	s.sqlMock.ExpectQuery(selectDedupRegexp).WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
+
+	task, err = s.mockedRepository.SubmitTask(ctx, keyedTask)
+	s.NotNil(task)
+	s.ErrorIs(err, tasq.ErrDuplicateTask)
+
+	// duplicate whose conflicting task vanished: insert is retried once
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(insertMockRegexp).WillReturnError(dupErr)
+	s.sqlMock.ExpectRollback()
+	s.sqlMock.ExpectQuery(selectDedupRegexp).WillReturnRows(sqlmock.NewRows(taskColumns))
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(insertMockRegexp).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectQuery(selectIDRegexp).WillReturnRows(sqlmock.NewRows(taskColumns).AddRow(taskValues...))
+	s.sqlMock.ExpectCommit()
+
+	task, err = s.mockedRepository.SubmitTask(ctx, keyedTask)
+	s.NotNil(task)
+	s.NoError(err)
+
+	// duplicate that keeps vanishing: gives up
+	for range 2 {
+		s.sqlMock.ExpectBegin()
+		s.sqlMock.ExpectExec(insertMockRegexp).WillReturnError(dupErr)
+		s.sqlMock.ExpectRollback()
+		s.sqlMock.ExpectQuery(selectDedupRegexp).WillReturnRows(sqlmock.NewRows(taskColumns))
+	}
+
+	task, err = s.mockedRepository.SubmitTask(ctx, keyedTask)
+	s.Nil(task)
+	s.Error(err)
+
+	// duplicate lookup fails
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(insertMockRegexp).WillReturnError(dupErr)
+	s.sqlMock.ExpectRollback()
+	s.sqlMock.ExpectQuery(selectDedupRegexp).WillReturnError(errSQL)
+
+	task, err = s.mockedRepository.SubmitTask(ctx, keyedTask)
+	s.Nil(task)
+	s.Error(err)
+
+	// unrelated unique violations are not treated as duplicates
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(insertMockRegexp).WillReturnError(otherDupErr)
+	s.sqlMock.ExpectRollback()
+
+	task, err = s.mockedRepository.SubmitTask(ctx, keyedTask)
+	s.Nil(task)
+	s.Error(err)
+	s.NotErrorIs(err, tasq.ErrDuplicateTask)
 }
 
 func (s *MySQLTestSuite) TestDeleteTask() {
@@ -823,6 +898,18 @@ func (s *MySQLTestSuite) TestRequeueTask() {
 	task, err = s.mockedRepository.RequeueTask(ctx, testTask)
 	s.Empty(task)
 	s.Error(err)
+
+	// requeuing when the dedup key was claimed by another open task
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(updateMockRegexp).WillReturnError(&mysqldriver.MySQLError{
+		Number:  1062,
+		Message: "Duplicate entry 'x' for key 'test_tasks.test_tasks_open_dedup_idx'",
+	})
+	s.sqlMock.ExpectRollback()
+
+	task, err = s.mockedRepository.RequeueTask(ctx, testTask)
+	s.Empty(task)
+	s.ErrorIs(err, tasq.ErrDuplicateTask)
 
 	// requeuing when update is successful but select fails
 	s.sqlMock.ExpectBegin()

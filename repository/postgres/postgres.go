@@ -37,7 +37,6 @@ var (
 	errFailedToExecuteInsert      = errors.New("failed to execute insert query")
 	errFailedToExecuteCreateTable = errors.New("failed to execute create table query")
 	errFailedToExecuteCreateType  = errors.New("failed to execute create type query")
-	errFailedToExecuteAlterTable  = errors.New("failed to execute alter table query")
 	errFailedToExecuteCreateIndex = errors.New("failed to execute create index query")
 	errFailedToExecuteSelect      = errors.New("failed to execute select query")
 	errFailedToAcquireLock        = errors.New("failed to acquire migration lock")
@@ -125,7 +124,7 @@ func (d *Repository) Migrate(ctx context.Context) (err error) {
 	if err = d.migrateTable(ctx, tx); err != nil {
 		return err
 	}
-	if err = d.migrateDedupKey(ctx, tx); err != nil {
+	if err = d.migrateDedupIndex(ctx, tx); err != nil {
 		return err
 	}
 
@@ -731,6 +730,7 @@ func (d *Repository) migrateTable(ctx context.Context, tx *sqlx.Tx) error {
 	const sqlTemplate = `CREATE TABLE IF NOT EXISTS {{.tableName}} (
 			"id" UUID NOT NULL PRIMARY KEY,
 			"type" TEXT NOT NULL,
+			"dedup_key" TEXT,
 			"args" BYTEA NOT NULL,
 			"queue" TEXT NOT NULL,
 			"priority" SMALLINT NOT NULL,
@@ -741,8 +741,7 @@ func (d *Repository) migrateTable(ctx context.Context, tx *sqlx.Tx) error {
 			"created_at" TIMESTAMPTZ NOT NULL DEFAULT '0001-01-01 00:00:00.000000',
 			"started_at" TIMESTAMPTZ,
 			"finished_at" TIMESTAMPTZ,
-			"visible_at" TIMESTAMPTZ NOT NULL DEFAULT '0001-01-01 00:00:00.000000',
-			"dedup_key" TEXT
+			"visible_at" TIMESTAMPTZ NOT NULL DEFAULT '0001-01-01 00:00:00.000000'
 		);`
 
 	query := interpolateSQL(sqlTemplate, map[string]any{
@@ -777,25 +776,20 @@ func dedupIndexPredicate() string {
 	})
 }
 
-// migrateDedupKey adds the dedup_key column to tables created by earlier versions
-// and creates the partial unique index enforcing uniqueness among open tasks.
-func (d *Repository) migrateDedupKey(ctx context.Context, tx *sqlx.Tx) error {
-	const (
-		alterTemplate = `ALTER TABLE {{.tableName}} ADD COLUMN IF NOT EXISTS "dedup_key" TEXT;`
-		indexTemplate = `CREATE UNIQUE INDEX IF NOT EXISTS {{.indexName}} ON {{.tableName}} ("type", "dedup_key") WHERE {{.predicate}};`
-	)
+// migrateDedupIndex creates the partial unique index enforcing dedup key uniqueness
+// among open tasks. The dedup_key column itself is part of the table definition; tables
+// created by versions before v1.2.0 must be altered by hand (see UPGRADING.md), in which
+// case this fails because the column is missing.
+func (d *Repository) migrateDedupIndex(ctx context.Context, tx *sqlx.Tx) error {
+	const indexTemplate = `CREATE UNIQUE INDEX IF NOT EXISTS {{.indexName}} ON {{.tableName}} ("type", "dedup_key") WHERE {{.predicate}};`
 
-	params := map[string]any{
+	query := interpolateSQL(indexTemplate, map[string]any{
 		"tableName": d.tableNameWithSchema(),
 		"indexName": d.tableName + "_open_dedup_key_idx",
 		"predicate": dedupIndexPredicate(),
-	}
+	})
 
-	if _, err := tx.ExecContext(ctx, interpolateSQL(alterTemplate, params)); err != nil {
-		return fmt.Errorf("%w: %w", errFailedToExecuteAlterTable, err)
-	}
-
-	if _, err := tx.ExecContext(ctx, interpolateSQL(indexTemplate, params)); err != nil {
+	if _, err := tx.ExecContext(ctx, query); err != nil {
 		return fmt.Errorf("%w: %w", errFailedToExecuteCreateIndex, err)
 	}
 

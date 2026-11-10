@@ -155,7 +155,6 @@ func (s *PostgresTestSuite) TestMigrate() {
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
-	s.sqlMock.ExpectExec(`ALTER TABLE test_schema.test_tasks ADD COLUMN IF NOT EXISTS "dedup_key" TEXT`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE UNIQUE INDEX IF NOT EXISTS test_tasks_open_dedup_key_idx ON test_schema.test_tasks \("type", "dedup_key"\) WHERE "dedup_key" IS NOT NULL AND "status" IN \('NEW','ENQUEUED','IN_PROGRESS'\)`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectCommit().WillReturnError(errSQL)
 
@@ -168,23 +167,12 @@ func (s *PostgresTestSuite) TestMigrate() {
 	s.sqlMock.ExpectRollback()
 	s.Error(s.mockedRepository.Migrate(ctx))
 
-	// altering the table fails
-	s.sqlMock.ExpectBegin()
-	s.sqlMock.ExpectExec(`pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
-	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
-	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
-	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
-	s.sqlMock.ExpectExec(`ALTER TABLE test_schema.test_tasks`).WillReturnError(errSQL)
-	s.sqlMock.ExpectRollback()
-	s.Error(s.mockedRepository.Migrate(ctx))
-
 	// creating the index fails
 	s.sqlMock.ExpectBegin()
 	s.sqlMock.ExpectExec(`pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
-	s.sqlMock.ExpectExec(`ALTER TABLE test_schema.test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE UNIQUE INDEX`).WillReturnError(errSQL)
 	s.sqlMock.ExpectRollback()
 	s.Error(s.mockedRepository.Migrate(ctx))
@@ -195,7 +183,6 @@ func (s *PostgresTestSuite) TestMigrate() {
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
-	s.sqlMock.ExpectExec(`ALTER TABLE test_schema.test_tasks ADD COLUMN IF NOT EXISTS "dedup_key" TEXT`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE UNIQUE INDEX IF NOT EXISTS test_tasks_open_dedup_key_idx ON test_schema.test_tasks \("type", "dedup_key"\) WHERE "dedup_key" IS NOT NULL AND "status" IN \('NEW','ENQUEUED','IN_PROGRESS'\)`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectCommit()
 
@@ -211,7 +198,6 @@ func (s *PostgresTestSuite) TestMigrateWithoutSchema() {
 	s.sqlMock.ExpectExec(`pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
-	s.sqlMock.ExpectExec(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS "dedup_key" TEXT`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE UNIQUE INDEX IF NOT EXISTS tasks_open_dedup_key_idx ON tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectCommit()
 

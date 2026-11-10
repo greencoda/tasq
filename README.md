@@ -36,7 +36,7 @@ Afterwards simply run the example.go file
 go run _examples/<example_repo_name>/main.go
 ```
 
-## Task de-duplication (PostgreSQL)
+## Task de-duplication (PostgreSQL and MySQL)
 
 A producer can attach a dedup key to a task. While a task with the same `(type, dedup key)` is still **open** (`NEW`, `ENQUEUED` or `IN_PROGRESS`), submitting another one does not create a second task. Instead the existing open task is returned together with an error wrapping `tasq.ErrDuplicateTask`. Once the earlier task is `SUCCESSFUL` or `FAILED`, the same key can be submitted again.
 
@@ -57,9 +57,17 @@ case err != nil:
 
 - The check is atomic (`INSERT ... ON CONFLICT DO NOTHING` against a partial unique index), so concurrent submitters cannot create duplicates.
 - Tasks without a key behave exactly as before and are never de-duplicated. `Producer.Submit` is unchanged; to use a key, build the task with `NewTask` and submit it with `SubmitTask`.
-- `Migrate` adds a nullable `dedup_key` column and the index `<table>_open_dedup_key_idx` to existing tables (idempotent, serialized across instances with an advisory lock). Existing rows keep a `NULL` key.
+- `Migrate` creates new tables with the dedup columns and index but does **not** alter existing ones. **Upgrading from v1.1.4 requires running a few `ALTER`/`CREATE INDEX` statements by hand before deploying v1.2.0**: see [repository/postgres/UPGRADING.md](repository/postgres/UPGRADING.md) and [repository/mysql/UPGRADING.md](repository/mysql/UPGRADING.md). On MySQL an unaltered table makes every `SubmitTask` fail, not only keyed ones.
 - `RequeueTask` on a finished task whose key has since been claimed by another open task fails with an error wrapping `ErrDuplicateTask` and leaves the task untouched.
-- Only the PostgreSQL repository supports dedup keys; the MySQL repository returns an error for tasks that carry one.
+- MySQL has neither partial indexes nor `ON CONFLICT`, so it uses a `dedup_key VARCHAR(255)` column (longer keys are rejected), a virtual generated column `open_dedup_hash` that is `NULL` unless the task has a key and is open, and a unique index `<table>_open_dedup_idx` on it. Requires MySQL 5.7.8+.
+
+## Running the MySQL integration tests
+
+`repository/mysql/integration_test.go` is skipped unless `TASQ_TEST_MYSQL_DSN` is set:
+
+```shell
+TASQ_TEST_MYSQL_DSN="user:pass@tcp(localhost:3306)/db?parseTime=true" go test ./repository/mysql/
+```
 
 ## Running the PostgreSQL integration tests
 

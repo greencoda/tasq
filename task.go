@@ -80,7 +80,7 @@ type Task struct {
 	// (Type, DedupKey) pair is open (NEW, ENQUEUED or IN_PROGRESS), submitting
 	// another one returns the existing task together with ErrDuplicateTask.
 	// A nil DedupKey disables de-duplication for the task.
-	// Only supported by the PostgreSQL repository.
+	// Supported by the PostgreSQL and MySQL repositories.
 	DedupKey *string
 }
 
