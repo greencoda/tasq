@@ -123,3 +123,16 @@ func (s *TaskTestSuite) TestTaskSetVisibility() {
 	task.SetVisibility(visibilityTime)
 	s.Equal(task.VisibleAt, visibilityTime)
 }
+
+func (s *TaskTestSuite) TestWithDedupKey() {
+	task, err := tasq.NewTask("testTask", "args", "testQueue", 1, 1)
+	s.Require().NoError(err)
+	s.Nil(task.DedupKey)
+
+	s.Same(task, task.WithDedupKey("key"))
+	s.Require().NotNil(task.DedupKey)
+	s.Equal("key", *task.DedupKey)
+
+	task.WithDedupKey("")
+	s.Nil(task.DedupKey)
+}

@@ -2,6 +2,7 @@ package tasq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -29,9 +30,18 @@ func (p *Producer) Submit(ctx context.Context, taskType string, taskArgs any, qu
 }
 
 // SubmitTask submits an existing task struct to the queue based on the supplied arguments.
+//
+// If the task has a dedup key and an open task with the same type and key already
+// exists, no new task is created: the existing task is returned together with an
+// error wrapping ErrDuplicateTask (check with errors.Is). In every other error case
+// the returned task is nil.
 func (p *Producer) SubmitTask(ctx context.Context, task *Task) (*Task, error) {
 	submittedTask, err := p.client.repository.SubmitTask(ctx, task)
 	if err != nil {
+		if errors.Is(err, ErrDuplicateTask) && submittedTask != nil {
+			return submittedTask, fmt.Errorf("error submitting task: %w", err)
+		}
+
 		return nil, fmt.Errorf("error submitting task: %w", err)
 	}
 

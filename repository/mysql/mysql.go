@@ -25,6 +25,7 @@ const (
 )
 
 var (
+	errDedupKeyNotSupported       = errors.New("task de-duplication is not supported by the mysql repository")
 	errUnexpectedDataSourceType   = errors.New("unexpected dataSource type")
 	errFailedToBeginTx            = errors.New("failed to begin transaction")
 	errFailedToCommitTx           = errors.New("failed to commit transaction")
@@ -472,6 +473,10 @@ func (d *Repository) RegisterFinish(ctx context.Context, task *tasq.Task, finish
 
 // SubmitTask adds the supplied task to the queue.
 func (d *Repository) SubmitTask(ctx context.Context, task *tasq.Task) (*tasq.Task, error) {
+	if task.DedupKey != nil {
+		return nil, errDedupKeyNotSupported
+	}
+
 	const (
 		insertTaskSQLTemplate = `INSERT INTO 
 				{{.tableName}} 

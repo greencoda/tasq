@@ -591,6 +591,12 @@ func (s *MySQLTestSuite) TestSubmitTask() {
 	s.Empty(task)
 	s.Error(err)
 
+	// dedup keys are not supported
+	keyedTask, _ := tasq.NewTask("testTask", true, "testQueue", 1, 1)
+	task, err = s.mockedRepository.SubmitTask(ctx, keyedTask.WithDedupKey("key"))
+	s.Nil(task)
+	s.Error(err)
+
 	// registering failure when update fails
 	s.sqlMock.ExpectBegin()
 	s.sqlMock.ExpectExec(insertMockRegexp).WillReturnError(errSQL)
