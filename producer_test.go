@@ -97,3 +97,15 @@ func (s *ProducterTestSuite) TestSubmitTask() {
 	s.True(s.mockRepository.AssertCalled(s.T(), "SubmitTask", ctx, mock.AnythingOfType("*tasq.Task")))
 	s.NoError(err)
 }
+
+func (s *ProducterTestSuite) TestSubmitTaskDuplicate() {
+	ctx := context.Background()
+	task := s.testTask.WithDedupKey("key")
+
+	s.mockRepository.On("SubmitTask", ctx, task).Return(s.testTask, tasq.ErrDuplicateTask)
+
+	existingTask, err := s.tasqProducer.SubmitTask(ctx, task)
+
+	s.NotNil(existingTask)
+	s.Require().ErrorIs(err, tasq.ErrDuplicateTask)
+}

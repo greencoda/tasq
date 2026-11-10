@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/greencoda/tasq"
 	"github.com/greencoda/tasq/repository/postgres"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -33,6 +34,7 @@ var (
 		"started_at",
 		"finished_at",
 		"visible_at",
+		"dedup_key",
 	}
 	testTaskType  = "testTask"
 	testTaskQueue = "testQueue"
@@ -108,6 +110,7 @@ func (s *PostgresTestSuite) TestMigrate() {
 
 	// First try - creating the task_status type fails
 	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnError(errSQL)
 	s.sqlMock.ExpectRollback()
 
@@ -116,6 +119,7 @@ func (s *PostgresTestSuite) TestMigrate() {
 
 	// Second try - creating the schema fails
 	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnError(errSQL)
 	s.sqlMock.ExpectRollback()
@@ -125,6 +129,7 @@ func (s *PostgresTestSuite) TestMigrate() {
 
 	// Third try - creating the tasks table fails
 	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnError(errSQL)
@@ -135,6 +140,7 @@ func (s *PostgresTestSuite) TestMigrate() {
 
 	// Fourth try - rollback fails
 	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnError(errSQL)
@@ -145,19 +151,39 @@ func (s *PostgresTestSuite) TestMigrate() {
 
 	// Fifth try - commit fails
 	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE UNIQUE INDEX IF NOT EXISTS test_tasks_open_dedup_key_idx ON test_schema.test_tasks \("type", "dedup_key"\) WHERE "dedup_key" IS NOT NULL AND "status" IN \('NEW','ENQUEUED','IN_PROGRESS'\)`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectCommit().WillReturnError(errSQL)
 
 	err = s.mockedRepository.Migrate(ctx)
 	s.Error(err)
 
-	// Sixth try - migration succeeds
+	// lock acquisition fails
 	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`pg_advisory_xact_lock`).WillReturnError(errSQL)
+	s.sqlMock.ExpectRollback()
+	s.Error(s.mockedRepository.Migrate(ctx))
+
+	// creating the index fails
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE UNIQUE INDEX`).WillReturnError(errSQL)
+	s.sqlMock.ExpectRollback()
+	s.Error(s.mockedRepository.Migrate(ctx))
+
+	// Sixth try - migration succeeds
+	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
+	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE SCHEMA IF NOT EXISTS test_schema`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS test_schema.test_tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE UNIQUE INDEX IF NOT EXISTS test_tasks_open_dedup_key_idx ON test_schema.test_tasks \("type", "dedup_key"\) WHERE "dedup_key" IS NOT NULL AND "status" IN \('NEW','ENQUEUED','IN_PROGRESS'\)`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectCommit()
 
 	err = s.mockedRepository.Migrate(ctx)
@@ -169,8 +195,10 @@ func (s *PostgresTestSuite) TestMigrateWithoutSchema() {
 	s.Require().NoError(err)
 
 	s.sqlMock.ExpectBegin()
+	s.sqlMock.ExpectExec(`pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
 	s.sqlMock.ExpectExec(`CREATE TYPE test_task_status AS ENUM`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectExec(`CREATE TABLE IF NOT EXISTS tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
+	s.sqlMock.ExpectExec(`CREATE UNIQUE INDEX IF NOT EXISTS tasks_open_dedup_key_idx ON tasks`).WillReturnResult(sqlmock.NewResult(1, 1))
 	s.sqlMock.ExpectCommit()
 
 	err = repository.Migrate(ctx)
@@ -366,6 +394,66 @@ func (s *PostgresTestSuite) TestSubmitTask() {
 	s.NoError(err)
 }
 
+func (s *PostgresTestSuite) TestSubmitTaskWithDedupKey() {
+	var (
+		insertRegexp = regexp.QuoteMeta(`INSERT INTO test_schema.test_tasks`)
+		selectRegexp = regexp.QuoteMeta(`SELECT * FROM test_schema.test_tasks WHERE "type" = $1 AND "dedup_key" = $2 AND "status" = ANY($3) LIMIT 1;`)
+		keyedTask    = getStartedTestTask().WithDedupKey("key")
+		keyedValues  = postgres.GetTestTaskValues(keyedTask)
+		keyedRows    = func() *sqlmock.Rows { return sqlmock.NewRows(taskColumns).AddRow(keyedValues...) }
+	)
+
+	// insert succeeds
+	s.sqlMock.ExpectPrepare(insertRegexp).ExpectQuery().WillReturnRows(keyedRows())
+
+	task, err := s.mockedRepository.SubmitTask(ctx, keyedTask)
+	s.Require().NoError(err)
+	s.Require().NotNil(task.DedupKey)
+	s.Equal("key", *task.DedupKey)
+
+	// insert fails
+	s.sqlMock.ExpectPrepare(insertRegexp).ExpectQuery().WillReturnError(errSQL)
+
+	task, err = s.mockedRepository.SubmitTask(ctx, keyedTask)
+	s.Nil(task)
+	s.Error(err)
+
+	// insert skipped, existing task returned
+	s.sqlMock.ExpectPrepare(insertRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns))
+	s.sqlMock.ExpectPrepare(selectRegexp).ExpectQuery().WillReturnRows(keyedRows())
+
+	task, err = s.mockedRepository.SubmitTask(ctx, keyedTask)
+	s.Require().ErrorIs(err, tasq.ErrDuplicateTask)
+	s.NotNil(task)
+
+	// insert skipped, existing task finished in the meantime, retry succeeds
+	s.sqlMock.ExpectPrepare(insertRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns))
+	s.sqlMock.ExpectPrepare(selectRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns))
+	s.sqlMock.ExpectPrepare(insertRegexp).ExpectQuery().WillReturnRows(keyedRows())
+
+	task, err = s.mockedRepository.SubmitTask(ctx, keyedTask)
+	s.NoError(err)
+	s.NotNil(task)
+
+	// the conflict keeps disappearing: error, never nil task with nil error
+	for range 2 {
+		s.sqlMock.ExpectPrepare(insertRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns))
+		s.sqlMock.ExpectPrepare(selectRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns))
+	}
+
+	task, err = s.mockedRepository.SubmitTask(ctx, keyedTask)
+	s.Nil(task)
+	s.Error(err)
+
+	// select fails
+	s.sqlMock.ExpectPrepare(insertRegexp).ExpectQuery().WillReturnRows(sqlmock.NewRows(taskColumns))
+	s.sqlMock.ExpectPrepare(selectRegexp).ExpectQuery().WillReturnError(errSQL)
+
+	task, err = s.mockedRepository.SubmitTask(ctx, keyedTask)
+	s.Nil(task)
+	s.Error(err)
+}
+
 func (s *PostgresTestSuite) TestDeleteTask() {
 	var (
 		stmtMockRegexp = regexp.QuoteMeta(`DELETE 
@@ -424,6 +512,13 @@ func (s *PostgresTestSuite) TestRequeueTask() {
 	task, err = s.mockedRepository.RequeueTask(ctx, testTask)
 	s.NotEmpty(task)
 	s.NoError(err)
+
+	// requeuing task whose dedup key is held by another open task
+	s.sqlMock.ExpectPrepare(stmtMockRegexp).ExpectQuery().WillReturnError(&pq.Error{Code: "23505"})
+
+	task, err = s.mockedRepository.RequeueTask(ctx, testTask)
+	s.Nil(task)
+	s.ErrorIs(err, tasq.ErrDuplicateTask)
 }
 
 func (s *PostgresTestSuite) TestCountTasks() {

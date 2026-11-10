@@ -3,6 +3,7 @@ package tasq
 import (
 	"bytes"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"time"
 
@@ -74,7 +75,19 @@ type Task struct {
 	StartedAt    *time.Time
 	FinishedAt   *time.Time
 	VisibleAt    time.Time
+
+	// DedupKey is an optional de-duplication key. While a task with the same
+	// (Type, DedupKey) pair is open (NEW, ENQUEUED or IN_PROGRESS), submitting
+	// another one returns the existing task together with ErrDuplicateTask.
+	// A nil DedupKey disables de-duplication for the task.
+	// Supported by the PostgreSQL and MySQL repositories.
+	DedupKey *string
 }
+
+// ErrDuplicateTask is returned (wrapped) by task submission when a task with the
+// same type and dedup key is still open. The existing open task is returned
+// alongside the error, so callers should check it with errors.Is.
+var ErrDuplicateTask = errors.New("duplicate task")
 
 // NewTask creates a new Task struct based on the supplied arguments required to define it.
 func NewTask(taskType string, taskArgs any, queue string, priority int16, maxReceives int32) (*Task, error) {
@@ -103,6 +116,20 @@ func NewTask(taskType string, taskArgs any, queue string, priority int16, maxRec
 		FinishedAt:   nil,
 		VisibleAt:    time.Time{},
 	}, nil
+}
+
+// WithDedupKey sets the de-duplication key of the task and returns the task
+// to allow chaining. An empty key clears the dedup key.
+func (t *Task) WithDedupKey(key string) *Task {
+	if key == "" {
+		t.DedupKey = nil
+
+		return t
+	}
+
+	t.DedupKey = &key
+
+	return t
 }
 
 // IsLastReceive returns true if the task has reached its maximum number of receives.

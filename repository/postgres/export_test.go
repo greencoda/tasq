@@ -25,6 +25,7 @@ func GetTestTaskValues(task *tasq.Task) []driver.Value {
 		testMySQLTask.StartedAt,
 		testMySQLTask.FinishedAt,
 		testMySQLTask.VisibleAt,
+		testMySQLTask.DedupKey,
 	}
 }
 

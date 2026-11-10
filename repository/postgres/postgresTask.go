@@ -22,6 +22,7 @@ type postgresTask struct {
 	StartedAt    *time.Time      `db:"started_at"`
 	FinishedAt   *time.Time      `db:"finished_at"`
 	VisibleAt    time.Time       `db:"visible_at"`
+	DedupKey     sql.NullString  `db:"dedup_key"`
 }
 
 func newFromTask(task *tasq.Task) *postgresTask {
@@ -39,6 +40,7 @@ func newFromTask(task *tasq.Task) *postgresTask {
 		StartedAt:    task.StartedAt,
 		FinishedAt:   task.FinishedAt,
 		VisibleAt:    task.VisibleAt,
+		DedupKey:     stringToSQLNullString(task.DedupKey),
 	}
 }
 
@@ -57,6 +59,7 @@ func (t *postgresTask) toTask() *tasq.Task {
 		StartedAt:    t.StartedAt,
 		FinishedAt:   t.FinishedAt,
 		VisibleAt:    t.VisibleAt,
+		DedupKey:     parseNullableString(t.DedupKey),
 	}
 }
 
